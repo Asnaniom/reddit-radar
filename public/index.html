@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reddit Radar</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <svg viewBox="0 0 20 20" width="34" height="34" aria-hidden="true">
+        <circle cx="10" cy="10" r="10" fill="#FF4500"/>
+        <ellipse cx="10" cy="11.2" rx="6.2" ry="4.4" fill="#fff"/>
+        <circle cx="7.6" cy="10.9" r="1.1" fill="#FF4500"/>
+        <circle cx="12.4" cy="10.9" r="1.1" fill="#FF4500"/>
+        <path d="M7.6 13.4c1.5 1.1 3.3 1.1 4.8 0" stroke="#FF4500" stroke-width=".8" fill="none" stroke-linecap="round"/>
+        <circle cx="15.7" cy="5.4" r="1.3" fill="#fff"/>
+        <path d="M10.3 6.9l1-3.4 3.2.9" stroke="#fff" stroke-width=".7" fill="none"/>
+      </svg>
+      <span class="logo-text">reddit<b>radar</b></span>
+    </div>
+    <span class="tagline">Find subreddits · watch keywords · you post, the tool watches</span>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="discover" class="active">🔍 Discover</button>
+  <button data-tab="threads">🧵 Threads</button>
+  <button data-tab="posted">💬 Posted</button>
+  <button data-tab="account">🎯 Watch Account</button>
+  <button data-tab="profile">👤 Profile</button>
+  <button data-tab="logs">📜 Logs</button>
+</nav>
+
+<main>
+  <!-- DISCOVER + WATCHLIST -->
+  <section id="tab-discover" class="tab active">
+    <div class="card">
+      <h3>Add a subreddit directly</h3>
+      <div class="keywords-row">
+        <input type="text" id="quick-add-input" placeholder="Paste a subreddit link, r/name, or just the name…" />
+        <button id="quick-add-btn" class="primary">+ Watch</button>
+      </div>
+      <span id="quick-add-status" class="status"></span>
+    </div>
+
+    <form id="search-form">
+      <input id="search-input" type="text" placeholder="Or search by keyword, e.g. AI, startups, machine learning…" autocomplete="off" />
+      <button type="submit">Search subreddits</button>
+    </form>
+    <div id="search-status" class="status"></div>
+    <div id="search-results"></div>
+
+    <h2>Currently watching</h2>
+    <div id="watch-list"></div>
+  </section>
+
+  <!-- THREADS: live feed from watched subreddits -->
+  <section id="tab-threads" class="tab">
+    <div class="card">
+      <h3>Keywords <span class="muted" style="font-weight:400;font-size:.8rem">(applied across every watched subreddit)</span></h3>
+      <div class="keywords-row">
+        <input type="text" id="global-keywords" placeholder="Comma-separated, e.g. AI, agents, LLM, automation" />
+        <button id="keywords-save-btn">Save</button>
+      </div>
+      <span id="keywords-status" class="status"></span>
+    </div>
+    <div class="watch-toolbar">
+      <button id="refresh-btn" class="primary">⟳ Hit Refresh</button>
+      <span id="refresh-status" class="status"></span>
+    </div>
+    <div id="thread-feed"><div class="empty-state"><span class="icon">🧵</span>Hit Refresh to load your feed — genuine questions only, newest first. News, opinions, rants, and self-promo are filtered out.</div></div>
+  </section>
+
+  <!-- WATCH BY ACCOUNT -->
+  <section id="tab-account" class="tab">
+    <div class="card">
+      <h3>Watch everything one Reddit account subscribes to</h3>
+      <p class="desc">Reddit doesn't expose subscriptions via scraping or self-serve OAuth apps anymore, so paste them once yourself: open the account on Reddit, open its subreddit/community sidebar list, and copy the names in here (one per line, or comma-separated — with or without "r/").</p>
+      <textarea id="account-paste" rows="8" placeholder="r/MachineLearning&#10;r/startups&#10;artificial&#10;..."></textarea>
+      <div class="watch-toolbar">
+        <button id="account-watch-all-btn" class="primary">+ Watch all pasted</button>
+        <span id="account-status" class="status"></span>
+      </div>
+    </div>
+    <div id="account-results"></div>
+  </section>
+
+  <!-- POSTED -->
+  <section id="tab-posted" class="tab">
+    <div class="watch-toolbar">
+      <button id="check-posted-btn" class="primary">⟳ Re-check threads</button>
+      <span id="posted-status" class="status"></span>
+    </div>
+    <div id="posted-list"></div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="tab-profile" class="tab">
+    <div class="card">
+      <h3>Outskill brand handle</h3>
+      <div class="keywords-row">
+        <input type="text" id="profile-url" placeholder="https://old.reddit.com/user/<outskill-handle>" />
+        <button id="profile-save-btn">Save</button>
+        <button id="profile-fetch-btn" class="primary">⟳ Fetch profile</button>
+      </div>
+      <span id="profile-status" class="status"></span>
+    </div>
+    <div class="card">
+      <h3>What Outskill teaches <span class="muted" style="font-weight:400;font-size:.8rem">(baked into every drafted answer)</span></h3>
+      <textarea id="outskill-context" rows="8"></textarea>
+      <div class="actions"><button id="context-save-btn">Save context</button><span id="context-status" class="status"></span></div>
+    </div>
+    <div id="profile-view"></div>
+  </section>
+
+  <!-- LOGS -->
+  <section id="tab-logs" class="tab">
+    <div class="watch-toolbar">
+      <button id="logs-refresh-btn" class="primary">⟳ Reload log</button>
+      <button id="logs-clear-btn">Clear log</button>
+      <span id="logs-status" class="status"></span>
+    </div>
+    <div id="logs-list"></div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
