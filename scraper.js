@@ -23,32 +23,37 @@ function throttled(fn) {
   return run;
 }
 
-async function fetchHtml(url, attempt = 0) {
-  return throttled(async () => {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cookie": "over18=1",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (res.status === 429 && attempt < 2) {
-      // Transient rate limit — back off and retry a couple times before
-      // giving up on this one page (the caller still treats the subreddit's
-      // other failures/successes independently).
-      await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
-      return fetchHtml(url, attempt + 1);
-    }
-    if (!res.ok) {
-      const err = new Error(`HTTP ${res.status} for ${url}`);
-      err.status = res.status;
-      throw err;
-    }
-    return res.text();
+// Does the actual fetch + 429 retry-with-backoff. Deliberately does NOT call
+// throttled() again on retry — an earlier version recursed into fetchHtml
+// (and so back into throttled/queue) from inside an already-running throttled
+// callback, which deadlocks: the queue can't advance until the retry settles,
+// but the retry can't start until the queue advances. Retries now stay
+// entirely inside the single throttled() slot acquired by the caller.
+async function fetchWithRetry(url, attempt = 0) {
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": UA,
+      "Accept": "text/html,application/xhtml+xml",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cookie": "over18=1",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
+  if (res.status === 429 && attempt < 2) {
+    await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+    return fetchWithRetry(url, attempt + 1);
+  }
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status} for ${url}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.text();
+}
+
+async function fetchHtml(url) {
+  return throttled(() => fetchWithRetry(url));
 }
 
 function parseCount(text) {
