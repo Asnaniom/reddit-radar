@@ -261,20 +261,27 @@ function runClaude(prompt) {
   });
 }
 
+// LLMs often ignore "no em dashes" as a pure instruction — enforce it as a
+// safety net too. A plain hyphen-with-spaces reads more like natural typing.
+function stripEmDashes(text) {
+  return text.replace(/\s*[—–]\s*/g, " - ");
+}
+
 app.post("/api/draft", async (req, res) => {
   const { title, selftext, sub, topComments } = req.body || {};
-  const settings = load().settings || {};
   const prompt =
     `Act as an AI mentor — a practitioner in generative AI, AI/ML, and AI agents — replying to a Reddit thread.\n\n` +
     `Thread in r/${sub}:\nTitle: ${title}\nBody:\n${(selftext || "(no body)").slice(0, 4000)}\n\n` +
     `Existing top comments (do not repeat their points):\n` +
     (topComments || []).slice(0, 5).map((c) => `- ${c.slice(0, 300)}`).join("\n") +
-    `\n\nWhat Outskill teaches (for the mention):\n${settings.outskillContext || "(none)"}\n\n` +
-    `Rules:\n` +
+    `\n\nRules:\n` +
     `- Give an accurate, specific, actionable answer to the actual question. Not verbose — no fluff, no generalities, no filler.\n` +
     `- Reply in the SAME language/style the thread itself is written in (e.g. Hindi, Hinglish, or any other language) — match the asker.\n` +
-    `- Naturally mention the ONE most relevant Outskill program once, like a practitioner mentioning where they teach this — not an ad. NO links, NO "sign up", "check out", "join us", or any call to action.\n` +
-    `- Keep it short: roughly 50-100 words, plain text only.\n` +
+    `- Write like a real person casually replying on Reddit — conversational, natural, contractions are fine. NOT a formal or corporate tone.\n` +
+    `- Format for readability: short paragraphs separated by a blank line, and a plain "-" bullet list if you're listing multiple things. Don't write one dense wall of text.\n` +
+    `- Do NOT use em dashes (—) or en dashes (–) anywhere. Use a period, comma, or "and" instead.\n` +
+    `- Do NOT mention Outskill, any course, program, or anything promotional. Just answer the question.\n` +
+    `- Keep it short: roughly 50-100 words total.\n` +
     `- End with exactly this sign-off on its own line: "Thanks, Om from Outskill"\n` +
     `- Output only the reply text, nothing else.`;
   // DRAFT_PROVIDER=chatgpt drives a logged-in Chrome profile against
@@ -282,7 +289,8 @@ app.post("/api/draft", async (req, res) => {
   // `claude` CLI. Both use an existing subscription, no API key.
   const provider = (process.env.DRAFT_PROVIDER || "claude").toLowerCase();
   try {
-    const draft = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaude(prompt);
+    const raw = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaude(prompt);
+    const draft = stripEmDashes(raw);
     log("draft", `Drafted answer for "${(title || "").slice(0, 60)}" via ${provider === "chatgpt" ? "ChatGPT (browser)" : "local Claude CLI"}`);
     res.json({ draft, manual: false });
   } catch (e) {
