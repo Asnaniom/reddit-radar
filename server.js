@@ -3,6 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { searchSubreddits, fetchSubredditPosts, fetchThread } from "./scraper.js";
+import { draftViaChatGPT } from "./chatgpt-browser.js";
 import { load, save, addLog, markThreadHandled } from "./store.js";
 
 function log(type, message) {
@@ -276,16 +277,23 @@ app.post("/api/draft", async (req, res) => {
     `- Keep it short: roughly 50-100 words, plain text only.\n` +
     `- End with exactly this sign-off on its own line: "Thanks, Om from Outskill"\n` +
     `- Output only the reply text, nothing else.`;
+  // DRAFT_PROVIDER=chatgpt drives a logged-in Chrome profile against
+  // chatgpt.com (npm run chatgpt-login sets it up); default uses the local
+  // `claude` CLI. Both use an existing subscription, no API key.
+  const provider = (process.env.DRAFT_PROVIDER || "claude").toLowerCase();
   try {
-    const draft = await runClaude(prompt);
-    log("draft", `Drafted answer for "${(title || "").slice(0, 60)}" via local Claude CLI`);
+    const draft = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaude(prompt);
+    log("draft", `Drafted answer for "${(title || "").slice(0, 60)}" via ${provider === "chatgpt" ? "ChatGPT (browser)" : "local Claude CLI"}`);
     res.json({ draft, manual: false });
   } catch (e) {
     log("error", `Draft failed for "${(title || "").slice(0, 60)}": ${e.message.slice(0, 200)}`);
     res.json({
       draft: null,
       manual: true,
-      note: `Local Claude CLI unavailable (${e.message.slice(0, 120)}) — write your reply manually below.`,
+      note:
+        provider === "chatgpt"
+          ? `ChatGPT automation unavailable (${e.message.slice(0, 120)}) — write your reply manually below.`
+          : `Local Claude CLI unavailable (${e.message.slice(0, 120)}) — write your reply manually below.`,
     });
   }
 });

@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --env-file-if-exists=.env server.js",
+    "chatgpt-login": "node login-chatgpt.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "playwright": "^1.61.1"
   }
 }
