@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
-import { searchSubreddits, fetchSubredditPosts, fetchThread, fetchUserProfile } from "./scraper.js";
+import { searchSubreddits, fetchSubredditPosts, fetchThread } from "./scraper.js";
 import { load, save, addLog } from "./store.js";
 
 function log(type, message) {
@@ -34,35 +34,6 @@ app.get("/api/search-subreddits", async (req, res) => {
     log("error", `Subreddit search for "${q}" failed: ${e.message}`);
     res.status(502).json({ error: e.message });
   }
-});
-
-// --- Bulk-watch from a pasted subscription list ------------------------------
-// Reddit doesn't expose an account's subscriptions via scraping, and self-serve
-// OAuth app creation is now blocked for new apps — so the exact list has to be
-// copied from Reddit's own UI and pasted in here once.
-
-app.post("/api/watch-bulk", (req, res) => {
-  const raw = String(req.body?.names || "");
-  const names = [
-    ...new Set(
-      raw
-        .split(/[\n,]/)
-        .map((s) => s.trim().replace(/^r\//i, ""))
-        .filter(Boolean)
-    ),
-  ];
-  if (names.length === 0) return res.status(400).json({ error: "no subreddit names found" });
-  const d = load();
-  let added = 0;
-  for (const name of names) {
-    if (!d.watch.some((w) => w.name.toLowerCase() === name.toLowerCase())) {
-      d.watch.push({ name, addedAt: Date.now() });
-      added++;
-    }
-  }
-  addLog(d, "account", `Bulk-watched ${added} new subreddit(s) from pasted list (${names.length} pasted)`);
-  save(d);
-  res.json({ ok: true, added, total: names.length, watch: d.watch });
 });
 
 // --- Watchlist ---------------------------------------------------------------
@@ -157,7 +128,7 @@ app.post("/api/refresh", async (_req, res) => {
   const d = load();
   if (d.watch.length === 0) return res.json({ results: [], errors: [] });
   if (!d.keywords || d.keywords.length === 0) {
-    return res.status(400).json({ error: "no keywords set — add some in the Threads tab first" });
+    return res.status(400).json({ error: "no keywords set — add some in the Feed tab first" });
   }
   // A full scan can take many minutes. Never hold one loaded copy of the data
   // file for that whole span and save() it at the end — that would silently
@@ -210,6 +181,10 @@ app.post("/api/refresh", async (_req, res) => {
   const lastRefresh = Date.now();
   const fresh = load();
   fresh.lastRefresh = lastRefresh;
+  // Persisted so the Feed tab shows the last scan immediately on load/reopen,
+  // instead of a blank "hit refresh" screen every time (a full scan can take
+  // a few minutes across a large watchlist).
+  fresh.lastFeed = { results, errors, lastRefresh, classifierAvailable };
   addLog(
     fresh,
     "refresh",
@@ -217,6 +192,12 @@ app.post("/api/refresh", async (_req, res) => {
   );
   save(fresh);
   res.json({ results, errors, lastRefresh, classifierAvailable });
+});
+
+// Cached feed from the most recent refresh — no rescanning, loads instantly.
+app.get("/api/thread-feed", (_req, res) => {
+  const { lastFeed } = load();
+  res.json(lastFeed || { results: [], errors: [], lastRefresh: null, classifierAvailable: null });
 });
 
 // --- Thread detail + answer drafting -----------------------------------------
@@ -286,33 +267,6 @@ app.post("/api/draft", async (req, res) => {
       manual: true,
       note: `Local Claude CLI unavailable (${e.message.slice(0, 120)}) — write your reply manually below.`,
     });
-  }
-});
-
-// --- Settings + brand profile ------------------------------------------------
-
-app.get("/api/settings", (_req, res) => res.json(load().settings || {}));
-
-app.put("/api/settings", (req, res) => {
-  const d = load();
-  d.settings = d.settings || {};
-  if (typeof req.body?.profileUrl === "string") d.settings.profileUrl = req.body.profileUrl.trim();
-  if (typeof req.body?.outskillContext === "string") d.settings.outskillContext = req.body.outskillContext.trim();
-  addLog(d, "profile", "Updated profile settings");
-  save(d);
-  res.json({ ok: true, settings: d.settings });
-});
-
-app.get("/api/profile", async (_req, res) => {
-  const { profileUrl } = load().settings || {};
-  if (!profileUrl) return res.json({ configured: false });
-  try {
-    const profile = await fetchUserProfile(profileUrl);
-    log("profile", `Fetched u/${profile.username} — ${profile.items.length} recent items`);
-    res.json({ configured: true, ...profile });
-  } catch (e) {
-    log("error", `Profile fetch failed: ${e.message}`);
-    res.status(502).json({ error: e.message });
   }
 });
 

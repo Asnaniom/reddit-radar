@@ -15,10 +15,11 @@ const DEFAULTS = {
   // logs: [{ at, type, message }]
   logs: [],
   lastRefresh: null,
+  // lastFeed: cached result of the most recent /api/refresh scan, so the Feed
+  // tab has something to show immediately without rescanning on every visit.
+  lastFeed: null,
   settings: {
-    // Reddit profile URL of the Outskill brand handle, e.g. https://old.reddit.com/user/outskill
-    profileUrl: "",
-    // What Outskill teaches — baked into every drafted answer. Editable in the Profile tab.
+    // What Outskill teaches — baked into every drafted answer.
     outskillContext:
       "Outskill (outskill.com) runs live AI education programs:\n" +
       "- 3-Day Generative AI Bootcamp: for working professionals, entrepreneurs, consultants and freelancers; no coding needed; prompt engineering, ChatGPT/OpenAI workflows, hands-on workbooks after every session.\n" +

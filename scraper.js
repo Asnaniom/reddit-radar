@@ -1,12 +1,14 @@
 // Scrapes public old.reddit.com HTML — no Reddit API, no account, no auth.
-// Polite by design: throttled to one request every couple seconds, browser UA,
-// small page counts. Do not raise the throttle aggressively.
+// Polite by design: single-file queue, browser UA, small page counts. A
+// 3-lane concurrent version was tried and reverted — it triggered HTTP 429 on
+// ~70% of requests in a 337-subreddit scan. Do not raise concurrency/pace.
 import * as cheerio from "cheerio";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-const MIN_GAP_MS = 2200;
+const MIN_GAP_MS = 2000;
+const REQUEST_TIMEOUT_MS = 15000;
 let lastRequestAt = 0;
 let queue = Promise.resolve();
 
@@ -21,7 +23,7 @@ function throttled(fn) {
   return run;
 }
 
-async function fetchHtml(url) {
+async function fetchHtml(url, attempt = 0) {
   return throttled(async () => {
     const res = await fetch(url, {
       headers: {
@@ -31,7 +33,15 @@ async function fetchHtml(url) {
         "Cookie": "over18=1",
       },
       redirect: "follow",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
+    if (res.status === 429 && attempt < 2) {
+      // Transient rate limit — back off and retry a couple times before
+      // giving up on this one page (the caller still treats the subreddit's
+      // other failures/successes independently).
+      await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+      return fetchHtml(url, attempt + 1);
+    }
     if (!res.ok) {
       const err = new Error(`HTTP ${res.status} for ${url}`);
       err.status = res.status;
@@ -113,14 +123,10 @@ async function fetchListing(url) {
 }
 
 export async function fetchSubredditPosts(sub) {
-  // "new" catches fresh threads; "hot" catches ones already gaining traction.
-  const [fresh, hot] = await Promise.all([
-    fetchListing(`https://old.reddit.com/r/${sub}/new/`),
-    fetchListing(`https://old.reddit.com/r/${sub}/`),
-  ]);
-  const seen = new Map();
-  for (const p of [...fresh, ...hot]) if (p.id && !seen.has(p.id)) seen.set(p.id, p);
-  return [...seen.values()];
+  // Just "new" — the feed is a reverse-chronological view, not an opportunity
+  // ranking, so the extra "hot" listing request per sub is no longer needed.
+  // Halves request volume across a large watchlist.
+  return fetchListing(`https://old.reddit.com/r/${sub}/new/`);
 }
 
 // --- Brand profile page (public user overview) ------------------------------

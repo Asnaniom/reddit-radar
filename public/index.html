@@ -26,17 +26,32 @@
 </header>
 
 <nav id="tabs">
-  <button data-tab="discover" class="active">🔍 Discover</button>
-  <button data-tab="threads">🧵 Threads</button>
+  <button data-tab="threads" class="active">🧵 Feed</button>
+  <button data-tab="discover">🔍 Add Subreddit</button>
   <button data-tab="posted">💬 Posted</button>
-  <button data-tab="account">🎯 Watch Account</button>
-  <button data-tab="profile">👤 Profile</button>
   <button data-tab="logs">📜 Logs</button>
 </nav>
 
 <main>
+  <!-- FEED: live feed from watched subreddits -->
+  <section id="tab-threads" class="tab active">
+    <div class="card">
+      <h3>Keywords <span class="muted" style="font-weight:400;font-size:.8rem">(applied across every watched subreddit)</span></h3>
+      <div class="keywords-row">
+        <input type="text" id="global-keywords" placeholder="Comma-separated, e.g. AI, agents, LLM, automation" />
+        <button id="keywords-save-btn">Save</button>
+      </div>
+      <span id="keywords-status" class="status"></span>
+    </div>
+    <div class="watch-toolbar">
+      <button id="refresh-btn" class="primary">⟳ Hit Refresh</button>
+      <span id="refresh-status" class="status"></span>
+    </div>
+    <div id="thread-feed"><div class="empty-state"><span class="icon">🧵</span>Hit Refresh to load your feed — genuine questions only, newest first. News, opinions, rants, and self-promo are filtered out.</div></div>
+  </section>
+
   <!-- DISCOVER + WATCHLIST -->
-  <section id="tab-discover" class="tab active">
+  <section id="tab-discover" class="tab">
     <div class="card">
       <h3>Add a subreddit directly</h3>
       <div class="keywords-row">
@@ -57,37 +72,6 @@
     <div id="watch-list"></div>
   </section>
 
-  <!-- THREADS: live feed from watched subreddits -->
-  <section id="tab-threads" class="tab">
-    <div class="card">
-      <h3>Keywords <span class="muted" style="font-weight:400;font-size:.8rem">(applied across every watched subreddit)</span></h3>
-      <div class="keywords-row">
-        <input type="text" id="global-keywords" placeholder="Comma-separated, e.g. AI, agents, LLM, automation" />
-        <button id="keywords-save-btn">Save</button>
-      </div>
-      <span id="keywords-status" class="status"></span>
-    </div>
-    <div class="watch-toolbar">
-      <button id="refresh-btn" class="primary">⟳ Hit Refresh</button>
-      <span id="refresh-status" class="status"></span>
-    </div>
-    <div id="thread-feed"><div class="empty-state"><span class="icon">🧵</span>Hit Refresh to load your feed — genuine questions only, newest first. News, opinions, rants, and self-promo are filtered out.</div></div>
-  </section>
-
-  <!-- WATCH BY ACCOUNT -->
-  <section id="tab-account" class="tab">
-    <div class="card">
-      <h3>Watch everything one Reddit account subscribes to</h3>
-      <p class="desc">Reddit doesn't expose subscriptions via scraping or self-serve OAuth apps anymore, so paste them once yourself: open the account on Reddit, open its subreddit/community sidebar list, and copy the names in here (one per line, or comma-separated — with or without "r/").</p>
-      <textarea id="account-paste" rows="8" placeholder="r/MachineLearning&#10;r/startups&#10;artificial&#10;..."></textarea>
-      <div class="watch-toolbar">
-        <button id="account-watch-all-btn" class="primary">+ Watch all pasted</button>
-        <span id="account-status" class="status"></span>
-      </div>
-    </div>
-    <div id="account-results"></div>
-  </section>
-
   <!-- POSTED -->
   <section id="tab-posted" class="tab">
     <div class="watch-toolbar">
@@ -95,25 +79,6 @@
       <span id="posted-status" class="status"></span>
     </div>
     <div id="posted-list"></div>
-  </section>
-
-  <!-- PROFILE -->
-  <section id="tab-profile" class="tab">
-    <div class="card">
-      <h3>Outskill brand handle</h3>
-      <div class="keywords-row">
-        <input type="text" id="profile-url" placeholder="https://old.reddit.com/user/<outskill-handle>" />
-        <button id="profile-save-btn">Save</button>
-        <button id="profile-fetch-btn" class="primary">⟳ Fetch profile</button>
-      </div>
-      <span id="profile-status" class="status"></span>
-    </div>
-    <div class="card">
-      <h3>What Outskill teaches <span class="muted" style="font-weight:400;font-size:.8rem">(baked into every drafted answer)</span></h3>
-      <textarea id="outskill-context" rows="8"></textarea>
-      <div class="actions"><button id="context-save-btn">Save context</button><span id="context-status" class="status"></span></div>
-    </div>
-    <div id="profile-view"></div>
   </section>
 
   <!-- LOGS -->

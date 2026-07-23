@@ -3,7 +3,6 @@ const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const emptyState = (icon, text) => `<div class="empty-state"><span class="icon">${icon}</span>${esc(text)}</div>`;
-const loadingLine = (text) => `<p class="muted">${esc(text)}<span class="spinner spinner-dark"></span></p>`;
 
 function setBtnLoading(btn, loading, loadingText) {
   if (loading) {
@@ -36,11 +35,9 @@ document.querySelectorAll("#tabs button").forEach((btn) => {
     btn.classList.add("active");
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
     if (btn.dataset.tab === "discover") renderWatchList();
-    if (btn.dataset.tab === "threads") loadGlobalKeywords();
+    if (btn.dataset.tab === "threads") { loadGlobalKeywords(); loadCachedFeed(); }
     if (btn.dataset.tab === "posted") renderPosted();
     if (btn.dataset.tab === "logs") renderLogs();
-    if (btn.dataset.tab === "profile") loadProfileSettings();
-    if (btn.dataset.tab === "account") loadAccountTab();
   });
 });
 
@@ -133,11 +130,7 @@ $("#keywords-save-btn").addEventListener("click", async () => {
 });
 
 async function renderWatchList() {
-  const { watch, lastRefresh } = await api("/api/watch");
-  if (lastRefresh) {
-    const s = $("#refresh-status");
-    if (s) s.textContent = `Last refresh: ${new Date(lastRefresh).toLocaleString()}`;
-  }
+  const { watch } = await api("/api/watch");
   if (watch.length === 0) {
     $("#watch-list").innerHTML = emptyState("👁", "No subreddits watched yet — add one above or search for one.");
     return;
@@ -180,21 +173,38 @@ function threadCardHtml(t, i) {
     </div>`;
 }
 
+function renderFeed(results, { errors = [], classifierAvailable, cached = false } = {}) {
+  feedThreads = results;
+  $("#refresh-status").textContent =
+    `${results.length} educational-question thread(s), newest first` +
+    (cached ? " (cached from last scan)" : "") +
+    (errors.length ? ` · ${errors.length} sub(s) failed` : "") +
+    (classifierAvailable === false ? " · AI classifier unavailable, used heuristic filter only" : "");
+  $("#thread-feed").innerHTML = results.length
+    ? results.map((t, i) => threadCardHtml(t, i)).join("")
+    : emptyState("🔎", "No genuine questions matched your keywords yet. Hit Refresh, or try broadening the keyword list above.");
+  document.querySelectorAll("[data-reply]").forEach((b) => b.addEventListener("click", () => handleReply(Number(b.dataset.reply))));
+}
+
+// Loads the last completed scan instantly (no rescanning) — shown on tab
+// open/page load so the Feed tab is never blank while a fresh scan runs.
+async function loadCachedFeed() {
+  try {
+    const { results, errors, lastRefresh, classifierAvailable } = await api("/api/thread-feed");
+    if (results.length === 0 && !lastRefresh) return; // nothing scanned yet — leave the initial empty-state as-is
+    renderFeed(results, { errors, classifierAvailable, cached: true });
+  } catch {
+    // no cached feed yet — leave the initial empty-state as-is
+  }
+}
+
 async function loadThreadFeed() {
   const btn = $("#refresh-btn");
   setBtnLoading(btn, true, "Scanning");
-  $("#refresh-status").textContent = "Scanning watched subreddits (throttled, ~2s per sub)…";
+  $("#refresh-status").textContent = "Scanning watched subreddits…";
   try {
     const { results, errors, classifierAvailable } = await api("/api/refresh", { method: "POST" });
-    feedThreads = results;
-    $("#refresh-status").textContent =
-      `${results.length} educational-question threads, newest first` +
-      (errors.length ? ` · ${errors.length} sub(s) failed` : "") +
-      (classifierAvailable === false ? " · AI classifier unavailable, used heuristic filter only" : "");
-    $("#thread-feed").innerHTML = results.length
-      ? results.map((t, i) => threadCardHtml(t, i)).join("")
-      : emptyState("🔎", "No genuine questions matched your keywords yet. Try broadening the keyword list above.");
-    document.querySelectorAll("[data-reply]").forEach((b) => b.addEventListener("click", () => handleReply(Number(b.dataset.reply))));
+    renderFeed(results, { errors, classifierAvailable });
   } catch (err) {
     $("#refresh-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
   } finally {
@@ -274,7 +284,7 @@ async function renderPosted() {
       <div class="actions"><button data-untrack="${esc(p.threadUrl)}">Remove</button></div>
     </div>`
       )
-      .join("") || emptyState("💬", "Nothing tracked yet — reply to a thread from the Threads tab and it'll show up here once you copy & post it.");
+      .join("") || emptyState("💬", "Nothing tracked yet — reply to a thread from the Feed tab and it'll show up here once you copy & post it.");
   document.querySelectorAll("[data-untrack]").forEach((b) =>
     b.addEventListener("click", async () => {
       await api("/api/posted", { method: "DELETE", body: { threadUrl: b.dataset.untrack } });
@@ -296,103 +306,6 @@ $("#check-posted-btn").addEventListener("click", async () => {
   } finally {
     setBtnLoading(btn, false);
   }
-});
-
-// --- Watch Account tab (paste subscription list once) -----------------------
-
-async function loadAccountTab() {
-  const { watch } = await api("/api/watch");
-  $("#account-results").innerHTML = watch.length
-    ? `<h2>Currently watching (${watch.length})</h2>
-       <div class="chip-list">${watch.map((w) => `<span class="chip">r/${esc(w.name)}</span>`).join("")}</div>`
-    : emptyState("🎯", "Nothing watched yet — paste a subreddit list above.");
-}
-
-$("#account-watch-all-btn").addEventListener("click", async () => {
-  const btn = $("#account-watch-all-btn");
-  const names = $("#account-paste").value.trim();
-  if (!names) {
-    $("#account-status").innerHTML = `<span class="error">Paste at least one subreddit name first.</span>`;
-    return;
-  }
-  setBtnLoading(btn, true, "Adding");
-  $("#account-status").textContent = "";
-  try {
-    const r = await api("/api/watch-bulk", { method: "POST", body: { names } });
-    $("#account-status").textContent = `Added ${r.added} new (of ${r.total} pasted)`;
-    $("#account-paste").value = "";
-    loadAccountTab();
-  } catch (err) {
-    $("#account-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
-  } finally {
-    setBtnLoading(btn, false);
-  }
-});
-
-// --- Profile tab ------------------------------------------------------------
-
-async function loadProfileSettings() {
-  const s = await api("/api/settings");
-  $("#profile-url").value = s.profileUrl || "";
-  $("#outskill-context").value = s.outskillContext || "";
-  if (s.profileUrl) fetchProfile();
-}
-
-async function fetchProfile() {
-  const btn = $("#profile-fetch-btn");
-  setBtnLoading(btn, true, "Fetching");
-  $("#profile-status").textContent = "";
-  $("#profile-view").innerHTML = loadingLine("Fetching profile from old.reddit.com…");
-  try {
-    const p = await api("/api/profile");
-    if (!p.configured) {
-      $("#profile-status").textContent = "Set the brand handle URL first.";
-      $("#profile-view").innerHTML = "";
-      return;
-    }
-    $("#profile-status").textContent = "";
-    $("#profile-view").innerHTML = `
-      <div class="card">
-        <h3>u/${esc(p.username)}</h3>
-        <div class="meta">
-          <span class="badge">⬆ ${p.postKarma.toLocaleString()} post karma</span>
-          <span class="badge">💬 ${p.commentKarma.toLocaleString()} comment karma</span>
-        </div>
-      </div>
-      <h2>Recent activity</h2>
-      ${p.items
-        .map(
-          (i) => `
-        <div class="card">
-          <div class="meta">
-            <span class="badge ${i.kind === "comment" ? "gray" : "green"}">${i.kind}</span>
-            <span class="badge gray">r/${esc(i.sub)}</span>
-            · ${i.score} points ${i.createdMs ? "· " + new Date(i.createdMs).toLocaleString() : ""}
-          </div>
-          ${i.title ? `<h3>${i.permalink ? `<a href="${esc(i.permalink)}" target="_blank" rel="noopener">${esc(i.title)}</a>` : esc(i.title)}</h3>` : ""}
-          ${i.body ? `<div class="comment-preview">${esc(i.body.slice(0, 280))}</div>` : ""}
-        </div>`
-        )
-        .join("") || emptyState("👤", "No public activity found yet.")}`;
-  } catch (err) {
-    $("#profile-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
-    $("#profile-view").innerHTML = "";
-  } finally {
-    setBtnLoading(btn, false);
-  }
-}
-
-$("#profile-save-btn").addEventListener("click", async () => {
-  await api("/api/settings", { method: "PUT", body: { profileUrl: $("#profile-url").value } });
-  $("#profile-status").textContent = "Saved.";
-});
-$("#profile-fetch-btn").addEventListener("click", async () => {
-  await api("/api/settings", { method: "PUT", body: { profileUrl: $("#profile-url").value } });
-  fetchProfile();
-});
-$("#context-save-btn").addEventListener("click", async () => {
-  await api("/api/settings", { method: "PUT", body: { outskillContext: $("#outskill-context").value } });
-  $("#context-status").textContent = "Saved — future drafts will use this.";
 });
 
 // --- Logs tab ---------------------------------------------------------------
@@ -427,5 +340,5 @@ $("#logs-clear-btn").addEventListener("click", async () => {
   renderLogs();
 });
 
-renderWatchList();
+loadCachedFeed();
 loadGlobalKeywords();
