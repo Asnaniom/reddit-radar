@@ -184,23 +184,31 @@ app.post("/api/refresh", async (_req, res) => {
     results = classified;
   }
 
-  // Reverse-chronological feed, newest first — opportunity score is shown but no
-  // longer used to reorder, so this reads like a real feed instead of a ranking.
-  results.sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0));
   const lastRefresh = Date.now();
   const fresh = load();
   fresh.lastRefresh = lastRefresh;
+  // Merge into the existing feed rather than replacing it — a thread only
+  // leaves the feed when you explicitly Reply or Dismiss it (handledThreads),
+  // never just because it aged out of a subreddit's "new" listing between
+  // scans. Re-load handled here too, in case a dismiss/reply happened while
+  // this (possibly many-minute) scan was still running.
+  const handledNow = new Set(fresh.handledThreads);
+  const existing = (fresh.lastFeed?.results || []).filter((t) => !handledNow.has(t.permalink));
+  const seenPermalinks = new Set(existing.map((t) => t.permalink));
+  const merged = [...existing, ...results.filter((t) => !seenPermalinks.has(t.permalink))];
+  merged.sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0));
+
   // Persisted so the Feed tab shows the last scan immediately on load/reopen,
   // instead of a blank "hit refresh" screen every time (a full scan can take
   // a few minutes across a large watchlist).
-  fresh.lastFeed = { results, errors, lastRefresh, classifierAvailable };
+  fresh.lastFeed = { results: merged, errors, lastRefresh, classifierAvailable };
   addLog(
     fresh,
     "refresh",
-    `Refresh finished — ${results.length} educational-question thread(s) (of ${candidates.length} keyword matches), ${errors.length} error(s)`
+    `Refresh finished — ${results.length} new thread(s) this scan, ${merged.length} total in feed, ${errors.length} error(s)`
   );
   save(fresh);
-  res.json({ results, errors, lastRefresh, classifierAvailable });
+  res.json({ results: merged, errors, lastRefresh, classifierAvailable });
 });
 
 // Cached feed from the most recent refresh — no rescanning, loads instantly.
