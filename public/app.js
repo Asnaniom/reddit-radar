@@ -156,11 +156,12 @@ async function renderWatchList() {
 // --- Threads: reverse-chronological feed with inline reply -------------------
 
 let feedThreads = []; // keyed by index for card lookups
+const toPublicRedditUrl = (url) => url.replace(/^https:\/\/old\.reddit\.com/, "https://www.reddit.com");
 
 function threadCardHtml(t, i) {
   return `
     <div class="card" data-card="${i}">
-      <h3><a href="${esc(t.permalink)}" target="_blank" rel="noopener">${esc(t.title)}</a></h3>
+      <h3><a href="${esc(toPublicRedditUrl(t.permalink))}" target="_blank" rel="noopener">${esc(t.title)}</a></h3>
       <div class="meta">
         <span class="badge gray">r/${esc(t.sub)}</span>
         <span class="badge green">score ${t.opportunity}</span>
@@ -264,6 +265,7 @@ async function handleReply(i) {
     });
     let tracked = false;
     area.innerHTML = `
+      ${thread.selftext ? `<div class="thread-body"><b>Question:</b><br>${esc(thread.selftext)}</div>` : ""}
       ${d.note ? `<p class="muted">${esc(d.note)}</p>` : ""}
       <textarea class="draft-text" rows="6">${esc(d.draft || "")}</textarea>
       <div class="actions">
@@ -281,7 +283,7 @@ async function handleReply(i) {
       } catch {
         copyOk = false;
       }
-      window.open(t.permalink, "_blank", "noopener");
+      window.open(toPublicRedditUrl(t.permalink), "_blank", "noopener");
       const note = area.querySelector(".reply-note");
       const copyPart = copyOk ? "Copied" : "Opened (copy failed — copy manually)";
       if (!tracked) {
@@ -316,7 +318,7 @@ async function renderPosted() {
       .map(
         (p) => `
     <div class="card">
-      <h3><a href="${esc(p.threadUrl)}" target="_blank" rel="noopener">${esc(p.title || p.threadUrl)}</a></h3>
+      <h3><a href="${esc(toPublicRedditUrl(p.threadUrl))}" target="_blank" rel="noopener">${esc(p.title || p.threadUrl)}</a></h3>
       <div class="meta">
         <span class="badge gray">r/${esc(p.sub)}</span>
         ${p.status === "found" ? '<span class="badge green">✓ answer live on thread</span>' : p.status === "not-found" ? '<span class="badge">not found yet</span>' : '<span class="badge gray">pending check</span>'}

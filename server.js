@@ -264,16 +264,17 @@ app.post("/api/draft", async (req, res) => {
   const { title, selftext, sub, topComments } = req.body || {};
   const settings = load().settings || {};
   const prompt =
-    `Act as an AI mentor — an expert in generative AI, AI/ML, and AI agents — drafting a Reddit reply from the Outskill brand handle.\n\n` +
+    `Act as an AI mentor — a practitioner in generative AI, AI/ML, and AI agents — replying to a Reddit thread.\n\n` +
     `Thread in r/${sub}:\nTitle: ${title}\nBody:\n${(selftext || "(no body)").slice(0, 4000)}\n\n` +
     `Existing top comments (do not repeat their points):\n` +
     (topComments || []).slice(0, 5).map((c) => `- ${c.slice(0, 300)}`).join("\n") +
-    `\n\nWhat Outskill teaches (for the plug):\n${settings.outskillContext || "(none)"}\n\n` +
+    `\n\nWhat Outskill teaches (for the mention):\n${settings.outskillContext || "(none)"}\n\n` +
     `Rules:\n` +
-    `- Give a specific, actionable answer to the actual question — concrete steps or recommendations, not generalities.\n` +
-    `- Keep it short: 60-110 words, conversational Reddit tone, plain text only.\n` +
-    `- At the end, naturally mention the ONE most relevant Outskill program, casually — like "this is also something we teach in our <program> at Outskill". It must feel like a normal aside from a practitioner, not an ad.\n` +
-    `- NO links of any kind. NO "sign up", "check out", "join us", or any call to action. NO "As an AI".\n` +
+    `- Give an accurate, specific, actionable answer to the actual question. Not verbose — no fluff, no generalities, no filler.\n` +
+    `- Reply in the SAME language/style the thread itself is written in (e.g. Hindi, Hinglish, or any other language) — match the asker.\n` +
+    `- Naturally mention the ONE most relevant Outskill program once, like a practitioner mentioning where they teach this — not an ad. NO links, NO "sign up", "check out", "join us", or any call to action.\n` +
+    `- Keep it short: roughly 50-100 words, plain text only.\n` +
+    `- End with exactly this sign-off on its own line: "Thanks, Om from Outskill"\n` +
     `- Output only the reply text, nothing else.`;
   try {
     const draft = await runClaude(prompt);

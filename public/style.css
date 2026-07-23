@@ -237,32 +237,14 @@ h2 {
   display: flex; align-items: center; gap: var(--sp-2);
 }
 
-/* Thread drawer */
-#drawer {
-  position: fixed; inset: 0; background: rgba(15,15,16,.45); backdrop-filter: blur(2px);
-  display: flex; justify-content: flex-end; z-index: 30;
-  animation: backdrop-in 180ms ease;
-}
-#drawer.hidden { display: none; }
-@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
-#drawer-inner {
-  width: min(600px, 100%); height: 100%; background: var(--card); overflow-y: auto;
-  padding: var(--sp-5); border-left: 1px solid var(--line);
-  box-shadow: -8px 0 32px rgba(0,0,0,.14);
-  animation: drawer-in 220ms cubic-bezier(.2,.8,.3,1);
-}
-@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-#drawer-close {
-  float: right; background: #f2f3f5; border: none; color: var(--meta); font-size: 1rem;
-  width: 32px; height: 32px; border-radius: 50%; transition: background var(--transition), color var(--transition);
-}
-#drawer-close:hover { background: var(--red-tint); color: var(--red); }
-#drawer-content h3 { margin: var(--sp-2) 40px var(--sp-2) 0; font-size: 1.15rem; line-height: 1.4; }
-#drawer-content .selftext {
-  white-space: pre-wrap; color: #333; font-size: .9rem; margin: var(--sp-3) 0;
+/* Question body shown in the inline reply area */
+.thread-body {
+  white-space: pre-wrap; color: #333; font-size: .88rem; margin: var(--sp-2) 0 var(--sp-3);
   background: #f8f9fa; border-radius: var(--radius-md); padding: var(--sp-3);
+  max-height: 300px; overflow-y: auto;
 }
-#drawer-content textarea { width: 100%; min-height: 150px; margin-top: var(--sp-2); }
+.thread-body b { color: var(--text); }
+
 .comment-preview {
   border-left: 3px solid var(--line); padding: 6px 0 6px 12px; margin: var(--sp-2) 0;
   font-size: .85rem; color: var(--meta);
