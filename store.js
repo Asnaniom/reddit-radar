@@ -18,6 +18,10 @@ const DEFAULTS = {
   // lastFeed: cached result of the most recent /api/refresh scan, so the Feed
   // tab has something to show immediately without rescanning on every visit.
   lastFeed: null,
+  // handledThreads: permalinks that have been dismissed or replied-to, so a
+  // thread never comes back into the feed once acted on (Reddit would keep
+  // re-surfacing it in "new" while it's still young otherwise).
+  handledThreads: [],
   settings: {
     // What Outskill teaches — baked into every drafted answer.
     outskillContext:
@@ -30,10 +34,25 @@ const DEFAULTS = {
 };
 
 const MAX_LOGS = 500;
+const MAX_HANDLED = 5000;
 
 export function addLog(data, type, message) {
   data.logs.unshift({ at: Date.now(), type, message });
   if (data.logs.length > MAX_LOGS) data.logs.length = MAX_LOGS;
+}
+
+// Marks a thread as handled (dismissed or replied-to) so it's excluded from
+// future scans, and strips it from the currently-cached feed immediately.
+export function markThreadHandled(data, permalink) {
+  if (!data.handledThreads.includes(permalink)) {
+    data.handledThreads.push(permalink);
+    if (data.handledThreads.length > MAX_HANDLED) {
+      data.handledThreads = data.handledThreads.slice(-MAX_HANDLED);
+    }
+  }
+  if (data.lastFeed?.results) {
+    data.lastFeed.results = data.lastFeed.results.filter((t) => t.permalink !== permalink);
+  }
 }
 
 export function load() {

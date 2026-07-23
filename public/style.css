@@ -179,9 +179,15 @@ button:not(.primary):not([type="submit"]) .spinner,
 .card .actions button.primary:hover { background: var(--orangered-dark); }
 
 /* Inline reply widget on thread feed cards */
-.reply-area { margin-top: var(--sp-3); }
+.reply-area { margin-top: var(--sp-3); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
 .reply-area .draft-text { width: 100%; margin-bottom: var(--sp-2); font-size: .88rem; }
-.reply-area .actions { margin-top: var(--sp-2); }
+.reply-area .actions { margin-top: var(--sp-2); width: 100%; }
+.reply-area > button:not(.primary) {
+  background: #fff; border: 1px solid var(--line); color: var(--meta);
+  padding: 10px 20px; border-radius: var(--radius-pill); font-size: .9rem;
+  transition: border-color var(--transition), color var(--transition);
+}
+.reply-area > button:not(.primary):hover { border-color: var(--red); color: var(--red); }
 
 /* Keyword chips + status flair */
 .badge {

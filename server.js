@@ -3,7 +3,7 @@ import path from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { searchSubreddits, fetchSubredditPosts, fetchThread } from "./scraper.js";
-import { load, save, addLog } from "./store.js";
+import { load, save, addLog, markThreadHandled } from "./store.js";
 
 function log(type, message) {
   const d = load();
@@ -80,9 +80,15 @@ app.put("/api/keywords", (req, res) => {
 
 // --- Refresh: scan watched subs, score matching threads ----------------------
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function scoreThread(t, keywords) {
-  const text = t.title.toLowerCase();
-  const matched = keywords.filter((k) => text.includes(k.toLowerCase()));
+  // Word-boundary match, not substring — plain .includes() let "AI" match
+  // inside "painting", "captain", "maintain", etc., letting unrelated threads
+  // through.
+  const matched = keywords.filter((k) => new RegExp(`\\b${escapeRegExp(k)}\\b`, "i").test(t.title));
   if (matched.length === 0) return null;
 
   // Opportunity score: prefer fresh threads with some traction but not
@@ -137,6 +143,7 @@ app.post("/api/refresh", async (_req, res) => {
   // via the log() helper (load -> mutate -> save) instead.
   const watch = d.watch;
   const keywords = d.keywords;
+  const handled = new Set(d.handledThreads);
   const candidates = [];
   const errors = [];
   log("refresh", `Refresh started — scanning ${watch.length} watched subreddit(s) for ${keywords.length} keyword(s)`);
@@ -145,6 +152,7 @@ app.post("/api/refresh", async (_req, res) => {
       const posts = await fetchSubredditPosts(w.name);
       const before = candidates.length;
       for (const p of posts) {
+        if (handled.has(p.permalink)) continue; // already replied to or dismissed
         const scored = scoreThread(p, keywords);
         if (scored && looksLikeQuestion(scored.title)) candidates.push({ ...scored, sub: w.name });
       }
@@ -198,6 +206,17 @@ app.post("/api/refresh", async (_req, res) => {
 app.get("/api/thread-feed", (_req, res) => {
   const { lastFeed } = load();
   res.json(lastFeed || { results: [], errors: [], lastRefresh: null, classifierAvailable: null });
+});
+
+// Dismiss a thread — drops it from the feed permanently, no reply drafted.
+app.post("/api/feed/dismiss", (req, res) => {
+  const { permalink, title } = req.body || {};
+  if (!permalink) return res.status(400).json({ error: "missing permalink" });
+  const d = load();
+  markThreadHandled(d, permalink);
+  addLog(d, "watch", `Dismissed thread: "${(title || permalink).slice(0, 60)}"`);
+  save(d);
+  res.json({ ok: true });
 });
 
 // --- Thread detail + answer drafting -----------------------------------------
@@ -287,6 +306,7 @@ app.post("/api/posted", (req, res) => {
     status: "pending",
     lastCheckedAt: null,
   });
+  markThreadHandled(d, threadUrl);
   addLog(d, "posted", `Tracking posted answer on r/${sub}: "${(title || threadUrl).slice(0, 60)}"`);
   save(d);
   res.json({ ok: true });

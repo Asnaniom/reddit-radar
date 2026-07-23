@@ -169,21 +169,54 @@ function threadCardHtml(t, i) {
       </div>
       <div class="reply-area">
         <button class="primary" data-reply="${i}">💬 Reply</button>
+        <button data-dismiss="${i}">🚫 Dismiss</button>
       </div>
     </div>`;
 }
 
+const EMPTY_FEED_MSG = "No genuine questions matched your keywords yet. Hit Refresh, or try broadening the keyword list above.";
+let feedMeta = { errors: [], classifierAvailable: null, cached: false };
+
+function feedStatusText(count) {
+  return (
+    `${count} educational-question thread(s), newest first` +
+    (feedMeta.cached ? " (cached from last scan)" : "") +
+    (feedMeta.errors.length ? ` · ${feedMeta.errors.length} sub(s) failed` : "") +
+    (feedMeta.classifierAvailable === false ? " · AI classifier unavailable, used heuristic filter only" : "")
+  );
+}
+
 function renderFeed(results, { errors = [], classifierAvailable, cached = false } = {}) {
   feedThreads = results;
-  $("#refresh-status").textContent =
-    `${results.length} educational-question thread(s), newest first` +
-    (cached ? " (cached from last scan)" : "") +
-    (errors.length ? ` · ${errors.length} sub(s) failed` : "") +
-    (classifierAvailable === false ? " · AI classifier unavailable, used heuristic filter only" : "");
+  feedMeta = { errors, classifierAvailable, cached };
+  $("#refresh-status").textContent = feedStatusText(results.length);
   $("#thread-feed").innerHTML = results.length
     ? results.map((t, i) => threadCardHtml(t, i)).join("")
-    : emptyState("🔎", "No genuine questions matched your keywords yet. Hit Refresh, or try broadening the keyword list above.");
+    : emptyState("🔎", EMPTY_FEED_MSG);
   document.querySelectorAll("[data-reply]").forEach((b) => b.addEventListener("click", () => handleReply(Number(b.dataset.reply))));
+  document.querySelectorAll("[data-dismiss]").forEach((b) => b.addEventListener("click", () => handleDismiss(Number(b.dataset.dismiss))));
+}
+
+// Removes a card from the visible feed (dismissed or already replied-to)
+// without a full reload, and keeps the status count in sync.
+function removeCardFromFeed(i) {
+  document.querySelector(`[data-card="${i}"]`)?.remove();
+  const remaining = document.querySelectorAll("#thread-feed [data-card]").length;
+  $("#refresh-status").textContent = feedStatusText(remaining);
+  if (remaining === 0) $("#thread-feed").innerHTML = emptyState("🔎", EMPTY_FEED_MSG);
+}
+
+async function handleDismiss(i) {
+  const t = feedThreads[i];
+  const btn = document.querySelector(`[data-dismiss="${i}"]`);
+  if (btn) setBtnLoading(btn, true, "Dismissing");
+  try {
+    await api("/api/feed/dismiss", { method: "POST", body: { permalink: t.permalink, title: t.title } });
+    removeCardFromFeed(i);
+  } catch (err) {
+    if (btn) setBtnLoading(btn, false);
+    $("#refresh-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
+  }
 }
 
 // Loads the last completed scan instantly (no rescanning) — shown on tab
@@ -239,9 +272,18 @@ async function handleReply(i) {
       </div>`;
     area.querySelector("[data-copy-open]").addEventListener("click", async () => {
       const text = area.querySelector(".draft-text").value;
-      await navigator.clipboard.writeText(text);
+      // Clipboard writes can fail for reasons outside our control (focus,
+      // permissions) — that must not block opening the thread or tracking
+      // the reply, which matter more than the copy itself.
+      let copyOk = true;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        copyOk = false;
+      }
       window.open(t.permalink, "_blank", "noopener");
       const note = area.querySelector(".reply-note");
+      const copyPart = copyOk ? "Copied" : "Opened (copy failed — copy manually)";
       if (!tracked) {
         try {
           await api("/api/posted", {
@@ -249,12 +291,13 @@ async function handleReply(i) {
             body: { threadUrl: t.permalink, title: thread.title || t.title, sub: t.sub, comment: text },
           });
           tracked = true;
-          note.innerHTML = `<span class="copy-note">Copied, opened, and tracked under Posted.</span>`;
+          note.innerHTML = `<span class="copy-note">${copyPart}, opened, and moved to Posted.</span>`;
+          setTimeout(() => removeCardFromFeed(i), 900);
         } catch {
-          note.innerHTML = `<span class="copy-note">Copied and opened.</span>`;
+          note.innerHTML = `<span class="copy-note">${copyPart} and opened, but tracking failed.</span>`;
         }
       } else {
-        note.innerHTML = `<span class="copy-note">Copied and opened again.</span>`;
+        note.innerHTML = `<span class="copy-note">${copyPart} and opened again.</span>`;
       }
     });
   } catch (err) {
