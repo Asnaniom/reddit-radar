@@ -246,13 +246,17 @@ app.get("/api/thread", async (req, res) => {
 });
 
 // Drafting runs through the local `claude` CLI (the user's existing Claude Code
-// subscription) — no API key involved.
+// subscription) — no API key involved. Explicitly pinned to Sonnet: measured
+// head-to-head on this system (3 runs each, same prompt), Sonnet averaged
+// ~11s vs Haiku's ~17s — the opposite of what model size would suggest, but
+// trust the measurement over the assumption.
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "sonnet";
 const CLI_ENV = { ...process.env, PATH: `${process.env.PATH || ""}:/opt/homebrew/bin:/usr/local/bin` };
 
 function runClaude(prompt) {
   return new Promise((resolve, reject) => {
-    const child = spawn(CLAUDE_BIN, ["-p", prompt, "--output-format", "text"], {
+    const child = spawn(CLAUDE_BIN, ["-p", prompt, "--model", CLAUDE_MODEL, "--output-format", "text"], {
       env: CLI_ENV,
       stdio: ["ignore", "pipe", "pipe"],
     });
