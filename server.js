@@ -143,7 +143,7 @@ async function classifyEducational(title) {
     `Answer with exactly one word: YES if this is a genuine question or request for help/guidance/learning. ` +
     `NO if this is news, an announcement, an opinion piece, a rant, a showcase/self-promotion, or a debate topic rather than someone asking to learn.\n\n` +
     `Answer:`;
-  const out = await runClaude(prompt);
+  const out = await runClaudeQueued(prompt); // low priority — yields to any in-flight draft request
   return /^yes/i.test(out.trim());
 }
 
@@ -312,6 +312,35 @@ function runClaude(prompt) {
   });
 }
 
+// The background scan's question-classifier and an interactive "Reply"
+// click both ultimately spawn the same local `claude` CLI. Left unbounded,
+// a scan in progress runs its classifier concurrently with a draft request,
+// and the two processes fight over CPU/network on one machine — this is
+// what pushed drafting from its earlier ~11s benchmark past a minute.
+// Serialize all CLI calls through one queue, with draft requests always
+// jumping ahead of queued classifier calls, so replying stays fast
+// regardless of what the background scan is doing.
+let cliBusy = false;
+const cliQueue = [];
+
+function pumpCliQueue() {
+  if (cliBusy || cliQueue.length === 0) return;
+  cliBusy = true;
+  const { prompt, resolve, reject } = cliQueue.shift();
+  runClaude(prompt)
+    .then(resolve, reject)
+    .finally(() => { cliBusy = false; pumpCliQueue(); });
+}
+
+function runClaudeQueued(prompt, { priority = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const task = { prompt, resolve, reject };
+    if (priority) cliQueue.unshift(task);
+    else cliQueue.push(task);
+    pumpCliQueue();
+  });
+}
+
 // LLMs often ignore "no em dashes" as a pure instruction — enforce it as a
 // safety net too. A plain hyphen-with-spaces reads more like natural typing.
 function stripEmDashes(text) {
@@ -340,7 +369,7 @@ app.post("/api/draft", async (req, res) => {
   // `claude` CLI. Both use an existing subscription, no API key.
   const provider = (process.env.DRAFT_PROVIDER || "claude").toLowerCase();
   try {
-    const raw = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaude(prompt);
+    const raw = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaudeQueued(prompt, { priority: true });
     const draft = stripEmDashes(raw);
     log("draft", `Drafted answer for "${(title || "").slice(0, 60)}" via ${provider === "chatgpt" ? "ChatGPT (browser)" : "local Claude CLI"}`);
     res.json({ draft, manual: false });
@@ -429,5 +458,16 @@ app.delete("/api/logs", (_req, res) => {
   save(d);
   res.json({ ok: true });
 });
+
+// A scan left mid-flight when the process last exited (crash, restart) can
+// never actually finish — nothing will clear scanStatus.inProgress on its
+// own, which would otherwise leave the UI showing "scanning…" forever.
+(function resetStaleScanStatus() {
+  const d = load();
+  if (d.scanStatus?.inProgress) {
+    d.scanStatus = { ...d.scanStatus, inProgress: false };
+    save(d);
+  }
+})();
 
 app.listen(PORT, () => console.log(`Reddit Radar running at http://localhost:${PORT}`));
