@@ -196,6 +196,7 @@ button:not(.primary):not([type="submit"]) .spinner,
 }
 .badge.green { background: var(--green-tint); color: var(--green); }
 .badge.gray { background: #edeff1; color: var(--meta); }
+.badge.hot { background: var(--red-tint); color: var(--red); }
 
 .chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: var(--sp-2); }
 .chip {

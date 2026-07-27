@@ -24,6 +24,11 @@ const DEFAULTS = {
   // thread never comes back into the feed once acted on (Reddit would keep
   // re-surfacing it in "new" while it's still young otherwise).
   handledThreads: [],
+  // scanStatus: progress of the currently-running (or most recently
+  // finished) refresh, so the frontend can poll and show live progress
+  // instead of blocking on one multi-minute request. Null before the first
+  // ever scan.
+  scanStatus: null,
   settings: {
     // What Outskill teaches — baked into every drafted answer.
     outskillContext:

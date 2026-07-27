@@ -165,6 +165,7 @@ function threadCardHtml(t, i) {
       <div class="meta">
         <span class="badge gray">r/${esc(t.sub)}</span>
         <span class="badge green">score ${t.opportunity}</span>
+        ${t.highVelocity ? `<span class="badge hot" title="High traction relative to age (${t.velocity}/hr) — likely to get more eyes if you reply now">🔥 trending</span>` : ""}
         ${t.matchedKeywords.map((k) => `<span class="badge">${esc(k)}</span>`).join("")}
         · ${t.score} upvotes · ${t.numComments} comments · ${t.ageHours != null ? Math.round(t.ageHours) + "h old" : ""}
       </div>
@@ -176,21 +177,32 @@ function threadCardHtml(t, i) {
 }
 
 const EMPTY_FEED_MSG = "No genuine questions matched your keywords yet. Hit Refresh, or try broadening the keyword list above.";
-let feedMeta = { errors: [], classifierAvailable: null, cached: false };
+let feedMeta = { errors: [], classifierAvailable: null, cached: false, scanStatus: null };
 
 function feedStatusText(count) {
+  const s = feedMeta.scanStatus;
+  const progress = s?.inProgress ? ` · scanning… ${s.scanned}/${s.total} subreddits` : "";
   return (
     `${count} educational-question thread(s), newest first` +
-    (feedMeta.cached ? " (cached from last scan)" : "") +
+    progress +
+    (feedMeta.cached && !s?.inProgress ? " (cached from last scan)" : "") +
     (feedMeta.errors.length ? ` · ${feedMeta.errors.length} sub(s) failed` : "") +
     (feedMeta.classifierAvailable === false ? " · AI classifier unavailable, used heuristic filter only" : "")
   );
 }
 
-function renderFeed(results, { errors = [], classifierAvailable, cached = false } = {}) {
-  feedThreads = results;
-  feedMeta = { errors, classifierAvailable, cached };
+function renderFeed(results, { errors = [], classifierAvailable, cached = false, scanStatus = null } = {}) {
+  feedMeta = { errors, classifierAvailable, cached, scanStatus };
   $("#refresh-status").textContent = feedStatusText(results.length);
+
+  // A poll tick during an in-progress scan re-fetches the whole feed every
+  // few seconds. If a draft is open (a textarea injected by handleReply),
+  // wiping the DOM would silently discard whatever the user is looking at
+  // or about to copy — so skip the rebuild (status text above still
+  // updates) until they finish or dismiss it.
+  if (document.querySelector("#thread-feed .draft-text")) return;
+
+  feedThreads = results;
   $("#thread-feed").innerHTML = results.length
     ? results.map((t, i) => threadCardHtml(t, i)).join("")
     : emptyState("🔎", EMPTY_FEED_MSG);
@@ -220,13 +232,40 @@ async function handleDismiss(i) {
   }
 }
 
-// Loads the last completed scan instantly (no rescanning) — shown on tab
-// open/page load so the Feed tab is never blank while a fresh scan runs.
+// Loads the last completed (or in-progress) scan instantly (no rescanning
+// itself) — shown on tab open/page load so the Feed tab is never blank while
+// a fresh scan runs, and picks polling back up if a scan was already running
+// when the page loaded.
+let pollTimer = null;
+const POLL_MS = 3000;
+
+function stopPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+async function pollTick() {
+  try {
+    const { results, errors, lastRefresh, classifierAvailable, scanStatus } = await api("/api/thread-feed");
+    renderFeed(results, { errors, classifierAvailable, cached: true, scanStatus });
+    if (!scanStatus?.inProgress) {
+      stopPolling();
+      setBtnLoading($("#refresh-btn"), false);
+    }
+  } catch {
+    // transient — next tick will retry
+  }
+}
+
 async function loadCachedFeed() {
   try {
-    const { results, errors, lastRefresh, classifierAvailable } = await api("/api/thread-feed");
-    if (results.length === 0 && !lastRefresh) return; // nothing scanned yet — leave the initial empty-state as-is
-    renderFeed(results, { errors, classifierAvailable, cached: true });
+    const { results, errors, lastRefresh, classifierAvailable, scanStatus } = await api("/api/thread-feed");
+    if (results.length === 0 && !lastRefresh && !scanStatus) return; // nothing scanned yet — leave the initial empty-state as-is
+    renderFeed(results, { errors, classifierAvailable, cached: true, scanStatus });
+    if (scanStatus?.inProgress && !pollTimer) {
+      setBtnLoading($("#refresh-btn"), true, "Scanning");
+      pollTimer = setInterval(pollTick, POLL_MS);
+    }
   } catch {
     // no cached feed yet — leave the initial empty-state as-is
   }
@@ -235,13 +274,15 @@ async function loadCachedFeed() {
 async function loadThreadFeed() {
   const btn = $("#refresh-btn");
   setBtnLoading(btn, true, "Scanning");
-  $("#refresh-status").textContent = "Scanning watched subreddits…";
+  $("#refresh-status").textContent = "Starting scan…";
   try {
-    const { results, errors, classifierAvailable } = await api("/api/refresh", { method: "POST" });
-    renderFeed(results, { errors, classifierAvailable });
+    const { started, alreadyRunning, error } = await api("/api/refresh", { method: "POST" });
+    if (error) throw new Error(error);
+    if (!started && !alreadyRunning) { setBtnLoading(btn, false); return; } // nothing watched
+    if (!pollTimer) pollTimer = setInterval(pollTick, POLL_MS);
+    pollTick(); // show first progress immediately instead of waiting a full POLL_MS
   } catch (err) {
     $("#refresh-status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
-  } finally {
     setBtnLoading(btn, false);
   }
 }

@@ -85,6 +85,8 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const VELOCITY_THRESHOLD = 5; // combined upvotes+comments per hour
+
 function scoreThread(t, keywords) {
   // Word-boundary match, not substring — plain .includes() let "AI" match
   // inside "painting", "captain", "maintain", etc., letting unrelated threads
@@ -100,7 +102,21 @@ function scoreThread(t, keywords) {
   const crowd = t.numComments <= 30 ? 1 : Math.max(0.2, 30 / t.numComments);
   const score =
     matched.length * 10 + freshness * 50 + traction * 25 + crowd * 15;
-  return { ...t, matchedKeywords: matched, opportunity: Math.round(score) };
+
+  // Single-snapshot velocity: traction per hour since posting. There's no
+  // history to measure a true rate of change against, so this is a proxy —
+  // combined upvotes+comments divided by age, floored at 1h so brand-new
+  // threads with a couple of early votes don't spike to absurd values.
+  const velocity = (t.score + t.numComments) / Math.max(age, 1);
+  const highVelocity = velocity >= VELOCITY_THRESHOLD;
+
+  return {
+    ...t,
+    matchedKeywords: matched,
+    opportunity: Math.round(score),
+    velocity: Math.round(velocity * 10) / 10,
+    highVelocity,
+  };
 }
 
 // Stage 1: cheap title heuristic — must read like a genuine question/help
@@ -131,90 +147,113 @@ async function classifyEducational(title) {
   return /^yes/i.test(out.trim());
 }
 
-app.post("/api/refresh", async (_req, res) => {
-  const d = load();
-  if (d.watch.length === 0) return res.json({ results: [], errors: [] });
-  if (!d.keywords || d.keywords.length === 0) {
-    return res.status(400).json({ error: "no keywords set — add some in the Feed tab first" });
-  }
-  // A full scan can take many minutes. Never hold one loaded copy of the data
-  // file for that whole span and save() it at the end — that would silently
-  // clobber any watchlist/keyword edits made while the scan was running with
-  // a stale snapshot from when it started. Every write below re-reads fresh
-  // via the log() helper (load -> mutate -> save) instead.
-  const watch = d.watch;
-  const keywords = d.keywords;
-  const handled = new Set(d.handledThreads);
-  const candidates = [];
+// Merges freshly-scored threads from one subreddit into the persisted feed
+// immediately, so the Feed tab can show results progressively during a scan
+// instead of waiting for all 337 subs to finish. A thread only ever leaves
+// the feed when explicitly Replied/Dismissed (handledThreads) — never just
+// because it aged out of a subreddit's "new" listing between scans.
+function mergeIntoFeed(subResults, errors, classifierAvailable) {
+  const fresh = load();
+  const handledNow = new Set(fresh.handledThreads);
+  const existing = (fresh.lastFeed?.results || []).filter((t) => !handledNow.has(t.permalink));
+  const seen = new Set(existing.map((t) => t.permalink));
+  const merged = [...existing, ...subResults.filter((t) => !seen.has(t.permalink))];
+  merged.sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0));
+  fresh.lastFeed = { results: merged, errors, lastRefresh: fresh.lastRefresh, classifierAvailable };
+  save(fresh);
+  return fresh;
+}
+
+// True while a scan is running, so a second "Hit Refresh" click (or a stray
+// double-submit) attaches to the existing scan instead of starting a
+// duplicate one racing over the same data file.
+let scanInProgress = false;
+
+async function runScan(watch, keywords) {
+  const startedAt = Date.now();
+  const total = watch.length;
   const errors = [];
-  log("refresh", `Refresh started — scanning ${watch.length} watched subreddit(s) for ${keywords.length} keyword(s)`);
+  let classifierAvailable = true;
+
+  const init = load();
+  init.scanStatus = { inProgress: true, startedAt, total, scanned: 0 };
+  save(init);
+  log("refresh", `Refresh started — scanning ${total} watched subreddit(s) for ${keywords.length} keyword(s)`);
+
   for (const w of watch) {
+    const subResults = [];
     try {
       const posts = await fetchSubredditPosts(w.name);
-      const before = candidates.length;
+      const handledNow = new Set(load().handledThreads);
+      const candidates = [];
       for (const p of posts) {
-        if (handled.has(p.permalink)) continue; // already replied to or dismissed
+        if (handledNow.has(p.permalink)) continue; // already replied to or dismissed
         const scored = scoreThread(p, keywords);
         if (scored && looksLikeQuestion(scored.title)) candidates.push({ ...scored, sub: w.name });
       }
-      log("scrape", `Scanned r/${w.name}: ${posts.length} threads fetched, ${candidates.length - before} passed keyword+question filter`);
+      // Run the AI classifier on survivors. If the local Claude CLI isn't
+      // logged in, fail open for the rest of the scan (heuristic filter
+      // only) rather than silently returning an empty feed.
+      for (const c of candidates) {
+        if (!classifierAvailable) { subResults.push(c); continue; }
+        try {
+          if (await classifyEducational(c.title)) subResults.push(c);
+        } catch (e) {
+          classifierAvailable = false;
+          log("error", `AI question-classifier unavailable (${e.message.slice(0, 120)}) — using heuristic filter only for the rest of this refresh`);
+          subResults.push(c);
+        }
+      }
+      log("scrape", `Scanned r/${w.name}: ${posts.length} threads fetched, ${subResults.length} passed keyword+question filter`);
     } catch (e) {
       errors.push({ sub: w.name, error: e.message });
       log("error", `Scan of r/${w.name} failed: ${e.message}`);
     }
-  }
 
-  // Run the AI classifier on survivors. If the local Claude CLI isn't logged
-  // in, fail open for the rest of this refresh (heuristic filter only) rather
-  // than silently returning an empty feed.
-  let results = candidates;
-  let classifierAvailable = true;
-  if (candidates.length > 0) {
-    const classified = [];
-    for (const c of candidates) {
-      if (!classifierAvailable) { classified.push(c); continue; }
-      try {
-        if (await classifyEducational(c.title)) classified.push(c);
-      } catch (e) {
-        classifierAvailable = false;
-        log("error", `AI question-classifier unavailable (${e.message.slice(0, 120)}) — using heuristic filter only for the rest of this refresh`);
-        classified.push(c);
-      }
-    }
-    results = classified;
+    const fresh = subResults.length > 0 ? mergeIntoFeed(subResults, errors, classifierAvailable) : load();
+    fresh.scanStatus = { inProgress: true, startedAt, total, scanned: fresh.scanStatus.scanned + 1 };
+    if (fresh.lastFeed) fresh.lastFeed.errors = errors;
+    save(fresh);
   }
 
   const lastRefresh = Date.now();
   const fresh = load();
   fresh.lastRefresh = lastRefresh;
-  // Merge into the existing feed rather than replacing it — a thread only
-  // leaves the feed when you explicitly Reply or Dismiss it (handledThreads),
-  // never just because it aged out of a subreddit's "new" listing between
-  // scans. Re-load handled here too, in case a dismiss/reply happened while
-  // this (possibly many-minute) scan was still running.
-  const handledNow = new Set(fresh.handledThreads);
-  const existing = (fresh.lastFeed?.results || []).filter((t) => !handledNow.has(t.permalink));
-  const seenPermalinks = new Set(existing.map((t) => t.permalink));
-  const merged = [...existing, ...results.filter((t) => !seenPermalinks.has(t.permalink))];
-  merged.sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0));
-
-  // Persisted so the Feed tab shows the last scan immediately on load/reopen,
-  // instead of a blank "hit refresh" screen every time (a full scan can take
-  // a few minutes across a large watchlist).
-  fresh.lastFeed = { results: merged, errors, lastRefresh, classifierAvailable };
+  if (fresh.lastFeed) {
+    fresh.lastFeed.lastRefresh = lastRefresh;
+    fresh.lastFeed.errors = errors;
+    fresh.lastFeed.classifierAvailable = classifierAvailable;
+  }
+  fresh.scanStatus = { inProgress: false, startedAt, total, scanned: total, finishedAt: lastRefresh };
   addLog(
     fresh,
     "refresh",
-    `Refresh finished — ${results.length} new thread(s) this scan, ${merged.length} total in feed, ${errors.length} error(s)`
+    `Refresh finished — ${fresh.lastFeed?.results.length ?? 0} total in feed, ${errors.length} error(s)`
   );
   save(fresh);
-  res.json({ results: merged, errors, lastRefresh, classifierAvailable });
+}
+
+app.post("/api/refresh", async (_req, res) => {
+  const d = load();
+  if (d.watch.length === 0) return res.json({ started: false, results: [], errors: [] });
+  if (!d.keywords || d.keywords.length === 0) {
+    return res.status(400).json({ error: "no keywords set — add some in the Feed tab first" });
+  }
+  if (scanInProgress) return res.json({ started: false, alreadyRunning: true });
+
+  scanInProgress = true;
+  runScan(d.watch, d.keywords)
+    .catch((e) => log("error", `Refresh crashed: ${e.message}`))
+    .finally(() => { scanInProgress = false; });
+  res.json({ started: true });
 });
 
-// Cached feed from the most recent refresh — no rescanning, loads instantly.
+// Cached feed from the most recent (or in-progress) refresh — no rescanning,
+// loads instantly. Polled by the frontend while a scan is running so results
+// appear progressively instead of only once the whole scan finishes.
 app.get("/api/thread-feed", (_req, res) => {
-  const { lastFeed } = load();
-  res.json(lastFeed || { results: [], errors: [], lastRefresh: null, classifierAvailable: null });
+  const { lastFeed, scanStatus } = load();
+  res.json({ ...(lastFeed || { results: [], errors: [], lastRefresh: null, classifierAvailable: null }), scanStatus });
 });
 
 // Dismiss a thread — drops it from the feed permanently, no reply drafted.
