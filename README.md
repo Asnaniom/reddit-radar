@@ -1,0 +1,11 @@
+# Reddit Radar
+
+Scrapes watched subreddits for threads matching your keywords, drafts a reply, and tracks whether you've posted it. Everything happens locally — no Reddit account or API key is used for scraping (old.reddit.com only), and drafting uses your own local Claude Code login.
+
+## Setup
+
+1. Install the [Claude Code CLI](https://docs.claude.com/claude-code) and log in (`claude` on the command line — this is what drafts replies, so it must work before you run the app).
+2. `npm install`
+3. `npm start` — runs at `http://localhost:4321`
+
+First run seeds the watchlist and keywords from `data/seed.json` (the shared starting point). After that, your own `data/data.json` takes over and evolves independently — refreshes, posted history, and dismissed threads are local to your machine, not synced with anyone else's copy.

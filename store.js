@@ -3,7 +3,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const DATA_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "data", "data.json");
+const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "data");
+const DATA_FILE = path.join(DATA_DIR, "data.json");
+const SEED_FILE = path.join(DATA_DIR, "seed.json");
 
 const DEFAULTS = {
   // watch: [{ name, addedAt }]
@@ -59,7 +61,14 @@ export function load() {
   try {
     return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) };
   } catch {
-    return structuredClone(DEFAULTS);
+    // No data file yet (fresh clone) — seed the watchlist/keywords from the
+    // checked-in seed.json instead of starting completely empty.
+    try {
+      const seed = JSON.parse(fs.readFileSync(SEED_FILE, "utf8"));
+      return { ...structuredClone(DEFAULTS), ...seed };
+    } catch {
+      return structuredClone(DEFAULTS);
+    }
   }
 }
 
