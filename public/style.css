@@ -180,7 +180,24 @@ button:not(.primary):not([type="submit"]) .spinner,
 
 /* Inline reply widget on thread feed cards */
 .reply-area { margin-top: var(--sp-3); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-.reply-area .draft-text { width: 100%; margin-bottom: var(--sp-2); font-size: .88rem; }
+.rt-toolbar { display: flex; gap: 4px; width: 100%; margin-bottom: 6px; }
+.rt-toolbar button {
+  background: #f6f7f8; border: 1px solid var(--line); border-radius: 6px;
+  width: 30px; height: 28px; font-size: .85rem; color: var(--text); cursor: pointer;
+}
+.rt-toolbar button:hover { border-color: var(--blue); background: #fff; }
+.draft-rich {
+  width: 100%; margin-bottom: var(--sp-2); font-size: .88rem; line-height: 1.5;
+  background: #f6f7f8; border: 1px solid var(--line); border-radius: var(--radius-md);
+  padding: 11px 16px; min-height: 120px; font-family: inherit; color: var(--text);
+}
+.draft-rich:focus {
+  outline: none; border-color: var(--blue); background: #fff;
+  box-shadow: 0 0 0 3px var(--blue-tint);
+}
+.draft-rich p { margin: 0 0 .7em; }
+.draft-rich p:last-child { margin-bottom: 0; }
+.draft-rich ul { margin: 0 0 .7em 1.2em; padding: 0; }
 .reply-area .actions { margin-top: var(--sp-2); width: 100%; }
 .reply-area > button:not(.primary) {
   background: #fff; border: 1px solid var(--line); color: var(--meta);

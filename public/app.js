@@ -4,6 +4,59 @@ const esc = (s) =>
 
 const emptyState = (icon, text) => `<div class="empty-state"><span class="icon">${icon}</span>${esc(text)}</div>`;
 
+// --- Reddit-markdown <-> rich text, for the editable draft box -------------
+// Reddit renders **bold**/*italic* from plain markdown source (both old and
+// new Reddit) — that's the one representation guaranteed to post correctly.
+// There's no underline in Reddit's markdown at all; a <u> the user adds in
+// the editor only shows up if the paste target accepts rich HTML (new
+// Reddit's comment box does), so it's carried in the HTML clipboard entry
+// but silently dropped from the plain-text one rather than faked.
+
+function escMd(s) {
+  return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+function inlineMdToHtml(s) {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
+}
+
+function markdownToHtml(md) {
+  return (md || "")
+    .split(/\n\s*\n/)
+    .map((para) => {
+      const lines = para.split("\n").filter((l) => l.trim() !== "");
+      if (lines.length && lines.every((l) => /^\s*-\s+/.test(l))) {
+        return `<ul>${lines.map((l) => `<li>${inlineMdToHtml(escMd(l.replace(/^\s*-\s+/, "")))}</li>`).join("")}</ul>`;
+      }
+      return `<p>${lines.map((l) => inlineMdToHtml(escMd(l))).join("<br>")}</p>`;
+    })
+    .join("");
+}
+
+function htmlToMarkdown(root) {
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const inner = Array.from(node.childNodes).map(walk).join("");
+    switch (node.tagName.toLowerCase()) {
+      case "strong": case "b": return `**${inner}**`;
+      case "em": case "i": return `*${inner}*`;
+      case "li": return `- ${inner}\n`;
+      case "br": return "\n";
+      case "div": case "p": case "ul": case "ol": return `${inner}\n\n`;
+      default: return inner;
+    }
+  }
+  return Array.from(root.childNodes)
+    .map(walk)
+    .join("")
+    .split("\n").map((l) => l.replace(/[ \t]+/g, " ").trimEnd()).join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function setBtnLoading(btn, loading, loadingText) {
   if (loading) {
     btn.dataset.label = btn.dataset.label || btn.innerHTML;
@@ -200,7 +253,7 @@ function renderFeed(results, { errors = [], classifierAvailable, cached = false,
   // wiping the DOM would silently discard whatever the user is looking at
   // or about to copy — so skip the rebuild (status text above still
   // updates) until they finish or dismiss it.
-  if (document.querySelector("#thread-feed .draft-text")) return;
+  if (document.querySelector("#thread-feed .draft-rich")) return;
 
   feedThreads = results;
   $("#thread-feed").innerHTML = results.length
@@ -308,19 +361,45 @@ async function handleReply(i) {
     area.innerHTML = `
       ${thread.selftext ? `<div class="thread-body"><b>Question:</b><br>${esc(thread.selftext)}</div>` : ""}
       ${d.note ? `<p class="muted">${esc(d.note)}</p>` : ""}
-      <textarea class="draft-text" rows="6">${esc(d.draft || "")}</textarea>
+      <div class="rt-toolbar">
+        <button type="button" data-fmt="bold" title="Bold"><b>B</b></button>
+        <button type="button" data-fmt="italic" title="Italic"><i>I</i></button>
+        <button type="button" data-fmt="underline" title="Underline — only shows up if pasted into Reddit's rich comment box; old Reddit has no underline"><u>U</u></button>
+      </div>
+      <div class="draft-rich" contenteditable="true">${markdownToHtml(d.draft || "")}</div>
       <div class="actions">
         <button class="primary" data-copy-open>📋 Copy & open thread</button>
         <span class="reply-note"></span>
       </div>`;
+    const richEl = area.querySelector(".draft-rich");
+    area.querySelectorAll("[data-fmt]").forEach((b) =>
+      b.addEventListener("mousedown", (e) => {
+        e.preventDefault(); // keep the current selection instead of losing it to the button
+        document.execCommand(b.dataset.fmt);
+      })
+    );
     area.querySelector("[data-copy-open]").addEventListener("click", async () => {
-      const text = area.querySelector(".draft-text").value;
+      const text = htmlToMarkdown(richEl);
       // Clipboard writes can fail for reasons outside our control (focus,
       // permissions) — that must not block opening the thread or tracking
-      // the reply, which matter more than the copy itself.
+      // the reply, which matter more than the copy itself. Write both a
+      // plain-markdown entry (what actually renders correctly once posted —
+      // Reddit parses **bold**/*italic* server-side regardless of editor)
+      // and a real-HTML entry, so a paste into an editor that accepts rich
+      // text (new Reddit's comment box) shows live formatting instead of
+      // literal asterisks.
       let copyOk = true;
       try {
-        await navigator.clipboard.writeText(text);
+        if (navigator.clipboard.write && window.ClipboardItem) {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              "text/plain": new Blob([text], { type: "text/plain" }),
+              "text/html": new Blob([richEl.innerHTML], { type: "text/html" }),
+            }),
+          ]);
+        } else {
+          await navigator.clipboard.writeText(text);
+        }
       } catch {
         copyOk = false;
       }

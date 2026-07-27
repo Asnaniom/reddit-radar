@@ -359,6 +359,7 @@ app.post("/api/draft", async (req, res) => {
     `- Reply in the SAME language/style the thread itself is written in (e.g. Hindi, Hinglish, or any other language) — match the asker.\n` +
     `- Write like a real person casually replying on Reddit — conversational, natural, contractions are fine. NOT a formal or corporate tone.\n` +
     `- Format for readability: short paragraphs separated by a blank line, and a plain "-" bullet list if you're listing multiple things. Don't write one dense wall of text.\n` +
+    `- Use Reddit markdown for emphasis where it genuinely helps skimmability — **bold** on tool/framework names or the key takeaway, *italic* for a light aside. Sparingly, not every line.\n` +
     `- Do NOT use em dashes (—) or en dashes (–) anywhere. Use a period, comma, or "and" instead.\n` +
     `- Do NOT mention Outskill, any course, program, or anything promotional. Just answer the question.\n` +
     `- Keep it short: roughly 50-100 words total.\n` +
