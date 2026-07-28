@@ -239,6 +239,8 @@ button:not(.primary):not([type="submit"]) .spinner,
   transition: border-color var(--transition), color var(--transition);
 }
 .watch-toolbar button:not(.primary):hover { border-color: var(--line-strong); color: var(--text); }
+.rising-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--meta); cursor: pointer; }
+.rising-toggle input { cursor: pointer; }
 
 .keywords-row { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
 .keywords-row input { font-size: .85rem; min-width: 240px; }

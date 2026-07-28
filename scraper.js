@@ -147,6 +147,11 @@ async function fetchListing(url) {
       createdMs,
       ageHours: createdMs ? (Date.now() - createdMs) / 36e5 : null,
       flair: $el.find(".linkflairlabel").first().text().trim() || null,
+      // Listing pages never include the post body itself (verified: 0/18
+      // self-posts in a sample listing had any text in .expando) — only
+      // whether it's a self-post is available here, to decide whether a
+      // separate body fetch is even worth making (link posts have none).
+      isSelf: $el.hasClass("self"),
     });
   });
   return posts;
@@ -221,12 +226,14 @@ export async function fetchUserProfile(profileUrl, { maxPages = 25 } = {}) {
 
 // --- Single thread (question body + comments) ------------------------------
 
-// Always priority: this is the interactive "open this thread before
-// drafting a reply" fetch, not a background scan — it must not sit behind
-// hundreds of queued subreddit-listing requests from a scan in progress.
-export async function fetchThread(threadUrl) {
+// priority: true for the interactive "open this thread before drafting a
+// reply" use — it must not sit behind hundreds of queued listing/body
+// fetches from a scan in progress. The scan itself calls this too now (to
+// read full post bodies, not just titles) and must leave priority off, or
+// it would be queue-jumping over its own other requests for no reason.
+export async function fetchThread(threadUrl, { priority = false } = {}) {
   const url = threadUrl.replace("www.reddit.com", "old.reddit.com");
-  const html = await fetchHtml(url, { priority: true });
+  const html = await fetchHtml(url, { priority });
   const $ = cheerio.load(html);
   const $post = $("div.thing.link").first();
   const title = $post.find("a.title").first().text().trim();

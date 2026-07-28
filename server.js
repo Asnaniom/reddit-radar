@@ -88,11 +88,13 @@ function escapeRegExp(s) {
 
 const VELOCITY_THRESHOLD = 5; // combined upvotes+comments per hour
 
-function scoreThread(t, keywords) {
+function scoreThread(t, keywords, matchText) {
   // Word-boundary match, not substring — plain .includes() let "AI" match
   // inside "painting", "captain", "maintain", etc., letting unrelated threads
-  // through.
-  const matched = keywords.filter((k) => new RegExp(`\\b${escapeRegExp(k)}\\b`, "i").test(t.title));
+  // through. matchText defaults to the title, but the scan passes title+body
+  // so a keyword that only appears in the post body still gets caught.
+  const text = matchText ?? t.title;
+  const matched = keywords.filter((k) => new RegExp(`\\b${escapeRegExp(k)}\\b`, "i").test(text));
   if (matched.length === 0) return null;
 
   // Opportunity score: prefer fresh threads with some traction but not
@@ -136,8 +138,8 @@ function looksLikeQuestion(title) {
 // question vs. news, opinion, rant, or self-promotion — catches things the
 // regex can't, e.g. "You used AI? That's not real programming" (has a "?"
 // but is a rant, not a question).
-async function classifyEducational(title) {
-  const out = await runClaudeQueued(buildClassifierPrompt(title)); // low priority — yields to any in-flight draft request
+async function classifyEducational(title, selftext) {
+  const out = await runClaudeQueued(buildClassifierPrompt(title, selftext)); // low priority — yields to any in-flight draft request
   return /^yes/i.test(out.trim());
 }
 
@@ -180,10 +182,27 @@ async function runScan(watch, keywords) {
       const posts = await fetchSubredditPosts(w.name);
       const handledNow = new Set(load().handledThreads);
       const candidates = [];
+      let bodyFetchFailures = 0;
       for (const p of posts) {
         if (handledNow.has(p.permalink)) continue; // already replied to or dismissed
-        const scored = scoreThread(p, keywords);
-        if (scored && looksLikeQuestion(scored.title)) candidates.push({ ...scored, sub: w.name });
+        // Listing pages carry title only — a keyword mentioned only in the
+        // post body would otherwise never surface. Self-posts get their
+        // body read here (one extra request each; link posts have no body
+        // to read, so they're skipped) before matching and classifying, so
+        // both the keyword filter and the AI classifier see the real
+        // question, not just a possibly-generic title.
+        let selftext = "";
+        if (p.isSelf) {
+          try {
+            const detail = await fetchThread(p.permalink); // background priority — never jumps ahead of an interactive reply
+            selftext = detail.selftext || "";
+          } catch {
+            bodyFetchFailures++; // fall back to title-only matching for this one post
+          }
+        }
+        const combinedText = `${p.title} ${selftext}`.trim();
+        const scored = scoreThread(p, keywords, combinedText);
+        if (scored && looksLikeQuestion(combinedText)) candidates.push({ ...scored, sub: w.name, selftext });
       }
       // Run the AI classifier on survivors. If the local Claude CLI isn't
       // logged in, fail open for the rest of the scan (heuristic filter
@@ -191,14 +210,18 @@ async function runScan(watch, keywords) {
       for (const c of candidates) {
         if (!classifierAvailable) { subResults.push(c); continue; }
         try {
-          if (await classifyEducational(c.title)) subResults.push(c);
+          if (await classifyEducational(c.title, c.selftext)) subResults.push(c);
         } catch (e) {
           classifierAvailable = false;
           log("error", `AI question-classifier unavailable (${e.message.slice(0, 120)}) — using heuristic filter only for the rest of this refresh`);
           subResults.push(c);
         }
       }
-      log("scrape", `Scanned r/${w.name}: ${posts.length} threads fetched, ${subResults.length} passed keyword+question filter`);
+      log(
+        "scrape",
+        `Scanned r/${w.name}: ${posts.length} threads fetched, ${subResults.length} passed keyword+question filter` +
+          (bodyFetchFailures ? ` (${bodyFetchFailures} post bod${bodyFetchFailures === 1 ? "y" : "ies"} unreadable, title-only for those)` : "")
+      );
     } catch (e) {
       errors.push({ sub: w.name, error: e.message });
       log("error", `Scan of r/${w.name} failed: ${e.message}`);
@@ -269,7 +292,7 @@ app.get("/api/thread", async (req, res) => {
     return res.status(400).json({ error: "invalid thread url" });
   }
   try {
-    const t = await fetchThread(url);
+    const t = await fetchThread(url, { priority: true });
     log("scrape", `Opened thread "${(t.title || url).slice(0, 80)}" — ${t.numComments} comments scraped`);
     res.json(t);
   } catch (e) {

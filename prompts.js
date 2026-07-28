@@ -24,11 +24,13 @@ export function buildDraftPrompt({ sub, title, selftext, topComments }) {
   );
 }
 
-export function buildClassifierPrompt(title) {
+export function buildClassifierPrompt(title, selftext) {
   return (
-    `You filter Reddit thread titles for a mentor bot that only replies to threads where someone ` +
+    `You filter Reddit threads for a mentor bot that only replies to threads where someone ` +
     `is genuinely asking for help, guidance, or is curious and trying to learn something in AI, tech, or business.\n\n` +
-    `Title: "${title}"\n\n` +
+    `Title: "${title}"\n` +
+    (selftext ? `Body: "${selftext.slice(0, 1500)}"\n` : `Body: (none — link post or empty)\n`) +
+    `\nJudge the whole thread, not just the title — a generic-sounding title can still be a genuine question once you read the body, and vice versa.\n\n` +
     `Answer with exactly one word: YES if this is a genuine question or request for help/guidance/learning. ` +
     `NO if this is news, an announcement, an opinion piece, a rant, a showcase/self-promotion, or a debate topic rather than someone asking to learn.\n\n` +
     `Answer:`

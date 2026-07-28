@@ -231,12 +231,19 @@ function threadCardHtml(t, i) {
 
 const EMPTY_FEED_MSG = "No genuine questions matched your keywords yet. Hit Refresh, or try broadening the keyword list above.";
 let feedMeta = { errors: [], classifierAvailable: null, cached: false, scanStatus: null };
+let rawFeedResults = []; // unfiltered — the "Rising only" toggle re-filters this without a refetch
+
+function risingOnly(results) {
+  if (!$("#rising-only").checked) return results;
+  return results.filter((t) => (t.ageHours != null && t.ageHours < 24) || t.highVelocity);
+}
 
 function feedStatusText(count) {
   const s = feedMeta.scanStatus;
   const progress = s?.inProgress ? ` · scanning… ${s.scanned}/${s.total} subreddits` : "";
   return (
     `${count} educational-question thread(s), newest first` +
+    ($("#rising-only").checked ? " (rising only)" : "") +
     progress +
     (feedMeta.cached && !s?.inProgress ? " (cached from last scan)" : "") +
     (feedMeta.errors.length ? ` · ${feedMeta.errors.length} sub(s) failed` : "") +
@@ -245,8 +252,10 @@ function feedStatusText(count) {
 }
 
 function renderFeed(results, { errors = [], classifierAvailable, cached = false, scanStatus = null } = {}) {
+  rawFeedResults = results;
   feedMeta = { errors, classifierAvailable, cached, scanStatus };
-  $("#refresh-status").textContent = feedStatusText(results.length);
+  const filtered = risingOnly(results);
+  $("#refresh-status").textContent = feedStatusText(filtered.length);
 
   // A poll tick during an in-progress scan re-fetches the whole feed every
   // few seconds. If a draft is open (a textarea injected by handleReply),
@@ -255,17 +264,23 @@ function renderFeed(results, { errors = [], classifierAvailable, cached = false,
   // updates) until they finish or dismiss it.
   if (document.querySelector("#thread-feed .draft-rich")) return;
 
-  feedThreads = results;
-  $("#thread-feed").innerHTML = results.length
-    ? results.map((t, i) => threadCardHtml(t, i)).join("")
-    : emptyState("🔎", EMPTY_FEED_MSG);
+  feedThreads = filtered;
+  $("#thread-feed").innerHTML = filtered.length
+    ? filtered.map((t, i) => threadCardHtml(t, i)).join("")
+    : emptyState("🔎", rawFeedResults.length ? "Nothing matches \"Rising only\" right now — try unchecking it." : EMPTY_FEED_MSG);
   document.querySelectorAll("[data-reply]").forEach((b) => b.addEventListener("click", () => handleReply(Number(b.dataset.reply))));
   document.querySelectorAll("[data-dismiss]").forEach((b) => b.addEventListener("click", () => handleDismiss(Number(b.dataset.dismiss))));
 }
+$("#rising-only").addEventListener("change", () => renderFeed(rawFeedResults, feedMeta));
 
 // Removes a card from the visible feed (dismissed or already replied-to)
-// without a full reload, and keeps the status count in sync.
+// without a full reload, and keeps the status count in sync. Also strips it
+// from rawFeedResults — otherwise toggling "Rising only" afterward would
+// re-render from the stale full list and bring an already-handled thread
+// back, since that toggle re-renders locally instead of refetching.
 function removeCardFromFeed(i) {
+  const permalink = feedThreads[i]?.permalink;
+  if (permalink) rawFeedResults = rawFeedResults.filter((t) => t.permalink !== permalink);
   document.querySelector(`[data-card="${i}"]`)?.remove();
   const remaining = document.querySelectorAll("#thread-feed [data-card]").length;
   $("#refresh-status").textContent = feedStatusText(remaining);
