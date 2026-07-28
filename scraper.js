@@ -10,17 +10,42 @@ const UA =
 const MIN_GAP_MS = 2000;
 const REQUEST_TIMEOUT_MS = 15000;
 let lastRequestAt = 0;
-let queue = Promise.resolve();
 
-function throttled(fn) {
-  const run = queue.then(async () => {
-    const wait = lastRequestAt + MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+// A background scan queues hundreds of listing fetches back to back; an
+// interactive request (opening a specific thread before drafting a reply)
+// must not sit behind all of them or it looks broken until the scan
+// finishes. Array-based queue instead of a plain promise chain so a
+// priority request can jump to the front — same pattern as the CLI queue
+// in server.js, same reasoning: one shared, rate-limited resource, and
+// interactive requests shouldn't wait behind bulk background work.
+let queueBusy = false;
+const fetchQueue = [];
+
+function pumpQueue() {
+  if (queueBusy || fetchQueue.length === 0) return;
+  queueBusy = true;
+  const { fn, resolve, reject } = fetchQueue.shift();
+  const wait = Math.max(0, lastRequestAt + MIN_GAP_MS - Date.now());
+  setTimeout(async () => {
     lastRequestAt = Date.now();
-    return fn();
+    try {
+      resolve(await fn());
+    } catch (e) {
+      reject(e);
+    } finally {
+      queueBusy = false;
+      pumpQueue();
+    }
+  }, wait);
+}
+
+function throttled(fn, { priority = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const task = { fn, resolve, reject };
+    if (priority) fetchQueue.unshift(task);
+    else fetchQueue.push(task);
+    pumpQueue();
   });
-  queue = run.catch(() => {});
-  return run;
 }
 
 // Does the actual fetch + 429 retry-with-backoff. Deliberately does NOT call
@@ -52,8 +77,8 @@ async function fetchWithRetry(url, attempt = 0) {
   return res.text();
 }
 
-async function fetchHtml(url) {
-  return throttled(() => fetchWithRetry(url));
+async function fetchHtml(url, { priority = false } = {}) {
+  return throttled(() => fetchWithRetry(url), { priority });
 }
 
 function parseCount(text) {
@@ -196,9 +221,12 @@ export async function fetchUserProfile(profileUrl, { maxPages = 25 } = {}) {
 
 // --- Single thread (question body + comments) ------------------------------
 
+// Always priority: this is the interactive "open this thread before
+// drafting a reply" fetch, not a background scan — it must not sit behind
+// hundreds of queued subreddit-listing requests from a scan in progress.
 export async function fetchThread(threadUrl) {
   const url = threadUrl.replace("www.reddit.com", "old.reddit.com");
-  const html = await fetchHtml(url);
+  const html = await fetchHtml(url, { priority: true });
   const $ = cheerio.load(html);
   const $post = $("div.thing.link").first();
   const title = $post.find("a.title").first().text().trim();
