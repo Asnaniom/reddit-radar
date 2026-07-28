@@ -4,28 +4,46 @@
   <meta charset="utf-8" />
   <title>Reddit Radar</title>
   <style>
-    html, body { margin: 0; padding: 0; }
-    iframe { width: 420px; height: 600px; border: none; display: block; }
-    .rr-offline { width: 420px; height: 600px; display: none; flex-direction: column; align-items: center;
-      justify-content: center; gap: 10px; font: 14px system-ui, -apple-system, sans-serif; color: #7c7c7c;
-      text-align: center; padding: 0 24px; box-sizing: border-box; }
-    .rr-offline b { color: #1a1a1b; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; width: 380px; padding: 14px;
+      font: 14px/1.5 system-ui, -apple-system, sans-serif; color: #1a1a1b;
+    }
+    h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+    .rr-status { color: #7c7c7c; font-size: 13px; }
+    .rr-error { color: #ea0027; font-size: 13px; }
+    .rr-thread-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+
+    .rr-toolbar { display: flex; gap: 4px; margin-bottom: 6px; }
+    .rr-toolbar button {
+      background: #f6f7f8; border: 1px solid #d7dadc; border-radius: 6px;
+      width: 28px; height: 26px; font-size: 13px; cursor: pointer;
+    }
+    .rr-toolbar button:hover { border-color: #0079d3; background: #fff; }
+
+    .rr-draft {
+      width: 100%; min-height: 140px; max-height: 320px; overflow-y: auto; font-size: 13.5px; line-height: 1.5;
+      background: #f6f7f8; border: 1px solid #d7dadc; border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 10px;
+    }
+    .rr-draft:focus { outline: none; border-color: #0079d3; background: #fff; }
+    .rr-draft p { margin: 0 0 .7em; }
+    .rr-draft p:last-child { margin-bottom: 0; }
+    .rr-draft ul { margin: 0 0 .7em 1.1em; padding: 0; }
+
+    .rr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .rr-actions button {
+      border: none; border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .rr-primary { background: #ff4500; color: #fff; }
+    .rr-primary:hover { background: #e03d00; }
+    .rr-secondary { background: #f6f7f8; border: 1px solid #d7dadc; color: #1a1a1b; }
+    .rr-note { font-size: 12.5px; color: #46a94a; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <iframe id="app" src="http://localhost:4321"></iframe>
-  <div class="rr-offline" id="offline">
-    <b>Reddit Radar server isn't running</b>
-    <span>Start it locally with <code>npm start</code> in the reddit-radar folder, then reopen this popup.</span>
-  </div>
-  <script>
-    // The iframe has no way to report a connection failure on its own —
-    // ping the server directly and swap to a plain-language message instead
-    // of leaving a blank/broken iframe if it's not running.
-    fetch("http://localhost:4321/api/keywords").catch(() => {
-      document.getElementById("app").style.display = "none";
-      document.getElementById("offline").style.display = "flex";
-    });
-  </script>
+  <h3>🤖 Reddit Radar</h3>
+  <div id="app"><div class="rr-status">Checking the current tab…</div></div>
+  <script src="popup.js"></script>
 </body>
 </html>
