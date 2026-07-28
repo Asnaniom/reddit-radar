@@ -7,6 +7,5 @@
     "default_popup": "popup.html",
     "default_title": "Reddit Radar"
   },
-  "host_permissions": ["http://localhost:4321/*", "*://*.reddit.com/*"],
-  "permissions": ["scripting"]
+  "host_permissions": ["http://localhost:4321/*", "*://*.reddit.com/*"]
 }

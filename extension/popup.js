@@ -58,41 +58,6 @@ function htmlToMarkdown(root) {
     .trim();
 }
 
-// --- Insertion into Reddit's own comment box (runs inside the tab) ---------
-// Injected on demand via chrome.scripting — not a persistent content
-// script, so there's nothing running on Reddit pages until you actually
-// click "Insert." Old Reddit's comment box is a plain <textarea>, reliable
-// to fill directly. New Reddit's composer is a framework-owned rich editor
-// whose internals change between redesigns; a synthetic paste event is the
-// standard trick for handing it real content, but isn't guaranteed to land
-// — Copy is always available as a sure-fire fallback either way.
-function insertIntoComposer(plainText, html) {
-  const ta = document.querySelector(".commentarea form.usertext-edit textarea[name='text'], .commentarea textarea[name='text']");
-  if (ta) {
-    ta.focus();
-    ta.value = (ta.value ? ta.value + "\n\n" : "") + plainText;
-    ta.dispatchEvent(new Event("input", { bubbles: true }));
-    return true;
-  }
-  const composer =
-    document.querySelector('[data-testid="comment-submission-form-richtext"] [contenteditable="true"]') ||
-    document.querySelector('shreddit-composer [contenteditable="true"]') ||
-    document.querySelector('div[contenteditable="true"][role="textbox"]');
-  if (composer) {
-    composer.focus();
-    try {
-      const dt = new DataTransfer();
-      dt.setData("text/plain", plainText);
-      dt.setData("text/html", html);
-      composer.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
-      return true; // best-effort — not independently confirmable from here
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
 // --- Main flow ---------------------------------------------------------------
 
 function threadMetaFromUrl(url) {
@@ -131,10 +96,10 @@ async function init() {
     return;
   }
 
-  renderDraft(tab.id, meta, thread, draft);
+  renderDraft(meta, thread, draft);
 }
 
-function renderDraft(tabId, meta, thread, d) {
+function renderDraft(meta, thread, d) {
   let tracked = false;
   app.innerHTML = `
     <div class="rr-thread-title">${escMd(thread.title || meta.permalink)}</div>
@@ -146,8 +111,7 @@ function renderDraft(tabId, meta, thread, d) {
     </div>
     <div class="rr-draft" contenteditable="true">${markdownToHtml(d.draft || "")}</div>
     <div class="rr-actions">
-      <button class="rr-primary" data-insert>⚡ Insert into comment box</button>
-      <button class="rr-secondary" data-copy>📋 Copy</button>
+      <button class="rr-primary" data-copy>📋 Copy Response</button>
     </div>
     <div class="rr-note"></div>
   `;
@@ -174,27 +138,6 @@ function renderDraft(tabId, meta, thread, d) {
       // non-fatal — the reply itself already happened from the user's POV
     }
   }
-
-  app.querySelector("[data-insert]").addEventListener("click", async () => {
-    const text = htmlToMarkdown(draftEl);
-    const html = draftEl.innerHTML;
-    try {
-      const [{ result: inserted }] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: insertIntoComposer,
-        args: [text, html],
-      });
-      if (inserted) {
-        note.textContent = "Inserted into the comment box — review before posting.";
-        await track(text);
-      } else {
-        note.textContent = "Couldn't find Reddit's comment box — copying instead, paste with Cmd/Ctrl+V.";
-        await navigator.clipboard.writeText(text).catch(() => {});
-      }
-    } catch (e) {
-      note.textContent = `Insert failed (${e.message}) — use Copy instead.`;
-    }
-  });
 
   app.querySelector("[data-copy]").addEventListener("click", async () => {
     const text = htmlToMarkdown(draftEl);

@@ -14,7 +14,7 @@ First run seeds the watchlist and keywords from `data/seed.json` (the shared sta
 
 Lives in `extension/` and talks to your locally-running server (`npm start` must be running for it to work — it's a thin client, not a standalone app).
 
-Browse to any Reddit thread, click the toolbar icon — the popup detects the thread you're on, reads it, and drafts a reply right there in a small rich text editor (bold/italic, editable). "Insert into comment box" tries to drop it straight into Reddit's own comment box (reliable on old.reddit.com's plain textarea; best-effort on new Reddit's rich editor, since it's a moving target across redesigns) and "Copy" always works as a sure-fire fallback. Either action tracks the reply to the web app's Posted tab, same as replying from the app itself.
+Browse to any Reddit thread, click the toolbar icon — the popup detects the thread you're on, reads it, and drafts a reply right there in a small rich text editor (bold/italic, editable). "Copy Response" copies it (paste into Reddit's comment box yourself with Cmd/Ctrl+V) and tracks the reply to the web app's Posted tab, same as replying from the app itself.
 
 Nothing runs on Reddit pages until you open the popup — no injected button, no background activity.
 
