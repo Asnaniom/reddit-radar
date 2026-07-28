@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { searchSubreddits, fetchSubredditPosts, fetchThread } from "./scraper.js";
 import { draftViaChatGPT } from "./chatgpt-browser.js";
 import { load, save, addLog, markThreadHandled } from "./store.js";
+import { buildDraftPrompt, buildClassifierPrompt } from "./prompts.js";
 
 function log(type, message) {
   const d = load();
@@ -136,14 +137,7 @@ function looksLikeQuestion(title) {
 // regex can't, e.g. "You used AI? That's not real programming" (has a "?"
 // but is a rant, not a question).
 async function classifyEducational(title) {
-  const prompt =
-    `You filter Reddit thread titles for a mentor bot that only replies to threads where someone ` +
-    `is genuinely asking for help, guidance, or is curious and trying to learn something in AI, tech, or business.\n\n` +
-    `Title: "${title}"\n\n` +
-    `Answer with exactly one word: YES if this is a genuine question or request for help/guidance/learning. ` +
-    `NO if this is news, an announcement, an opinion piece, a rant, a showcase/self-promotion, or a debate topic rather than someone asking to learn.\n\n` +
-    `Answer:`;
-  const out = await runClaudeQueued(prompt); // low priority — yields to any in-flight draft request
+  const out = await runClaudeQueued(buildClassifierPrompt(title)); // low priority — yields to any in-flight draft request
   return /^yes/i.test(out.trim());
 }
 
@@ -349,22 +343,7 @@ function stripEmDashes(text) {
 
 app.post("/api/draft", async (req, res) => {
   const { title, selftext, sub, topComments } = req.body || {};
-  const prompt =
-    `Act as an AI mentor — a practitioner in generative AI, AI/ML, and AI agents — replying to a Reddit thread.\n\n` +
-    `Thread in r/${sub}:\nTitle: ${title}\nBody:\n${(selftext || "(no body)").slice(0, 4000)}\n\n` +
-    `Existing top comments (do not repeat their points):\n` +
-    (topComments || []).slice(0, 5).map((c) => `- ${c.slice(0, 300)}`).join("\n") +
-    `\n\nRules:\n` +
-    `- Give an accurate, specific, actionable answer to the actual question. Not verbose — no fluff, no generalities, no filler.\n` +
-    `- Reply in the SAME language/style the thread itself is written in (e.g. Hindi, Hinglish, or any other language) — match the asker.\n` +
-    `- Write like a real person casually replying on Reddit — conversational, natural, contractions are fine. NOT a formal or corporate tone.\n` +
-    `- Format for readability: short paragraphs separated by a blank line, and a plain "-" bullet list if you're listing multiple things. Don't write one dense wall of text.\n` +
-    `- Use Reddit markdown for emphasis where it genuinely helps skimmability — **bold** on tool/framework names or the key takeaway, *italic* for a light aside. Sparingly, not every line.\n` +
-    `- Do NOT use em dashes (—) or en dashes (–) anywhere. Use a period, comma, or "and" instead.\n` +
-    `- Do NOT mention Outskill, any course, program, or anything promotional. Just answer the question.\n` +
-    `- Keep it short: roughly 50-100 words total.\n` +
-    `- End with exactly this sign-off on its own line: "Thanks, Om from Outskill"\n` +
-    `- Output only the reply text, nothing else.`;
+  const prompt = buildDraftPrompt({ sub, title, selftext, topComments });
   // DRAFT_PROVIDER=chatgpt drives a logged-in Chrome profile against
   // chatgpt.com (npm run chatgpt-login sets it up); default uses the local
   // `claude` CLI. Both use an existing subscription, no API key.
