@@ -130,8 +130,17 @@ const QUESTION_RE =
 const NEWS_OPINION_RE =
   /\b(ceo|cto|announces?|launch(ed|es|ing)?|raises?\s*\$|acquir(es|ed|ing)|banned?|lawsuit|regulat(ion|ors?)|unpopular opinion|\brant\b|megathread|breaking|reports?:|update:|news:)\b/i;
 
-function looksLikeQuestion(title) {
-  return QUESTION_RE.test(title) && !NEWS_OPINION_RE.test(title);
+// The positive "is this a question" signal must stay title-only: a full
+// post body almost always contains a "?" or a word like "how"/"what"
+// somewhere, so checking QUESTION_RE against title+body made it pass nearly
+// everything (caught live: "I analyzed AI startups this week. Here are 3
+// opportunities I found." — a showcase post, not a question — slipped
+// through once body text was added to this check). The negative
+// news/self-promo signal is fine, and better, checked against the full
+// text — that's exactly the kind of thing a title can hide but a body
+// reveals.
+function looksLikeQuestion(title, fullText) {
+  return QUESTION_RE.test(title) && !NEWS_OPINION_RE.test(fullText ?? title);
 }
 
 // Stage 2: local Claude CLI classifies survivors as a genuine learning/help
@@ -202,7 +211,7 @@ async function runScan(watch, keywords) {
         }
         const combinedText = `${p.title} ${selftext}`.trim();
         const scored = scoreThread(p, keywords, combinedText);
-        if (scored && looksLikeQuestion(combinedText)) candidates.push({ ...scored, sub: w.name, selftext });
+        if (scored && looksLikeQuestion(p.title, combinedText)) candidates.push({ ...scored, sub: w.name, selftext });
       }
       // Run the AI classifier on survivors. If the local Claude CLI isn't
       // logged in, fail open for the rest of the scan (heuristic filter
