@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Reddit Radar</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+    iframe { width: 420px; height: 600px; border: none; display: block; }
+    .rr-offline { width: 420px; height: 600px; display: none; flex-direction: column; align-items: center;
+      justify-content: center; gap: 10px; font: 14px system-ui, -apple-system, sans-serif; color: #7c7c7c;
+      text-align: center; padding: 0 24px; box-sizing: border-box; }
+    .rr-offline b { color: #1a1a1b; }
+  </style>
+</head>
+<body>
+  <iframe id="app" src="http://localhost:4321"></iframe>
+  <div class="rr-offline" id="offline">
+    <b>Reddit Radar server isn't running</b>
+    <span>Start it locally with <code>npm start</code> in the reddit-radar folder, then reopen this popup.</span>
+  </div>
+  <script>
+    // The iframe has no way to report a connection failure on its own —
+    // ping the server directly and swap to a plain-language message instead
+    // of leaving a blank/broken iframe if it's not running.
+    fetch("http://localhost:4321/api/keywords").catch(() => {
+      document.getElementById("app").style.display = "none";
+      document.getElementById("offline").style.display = "flex";
+    });
+  </script>
+</body>
+</html>

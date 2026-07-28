@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Reddit Radar",
+  "version": "0.1.0",
+  "description": "Drafts AI replies for Reddit threads matching your watched keywords, using your local Reddit Radar server.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Reddit Radar"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.reddit.com/r/*/comments/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": ["http://localhost:4321/*"]
+}
