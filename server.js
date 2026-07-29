@@ -319,14 +319,22 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "sonnet";
 const CLI_ENV = { ...process.env, PATH: `${process.env.PATH || ""}:/opt/homebrew/bin:/usr/local/bin` };
 
-function runClaude(prompt) {
+function runClaude(prompt, { allowedTools } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(CLAUDE_BIN, ["-p", prompt, "--model", CLAUDE_MODEL, "--output-format", "text"], {
+    const args = ["-p", prompt, "--model", CLAUDE_MODEL, "--output-format", "text"];
+    // Headless `-p` mode denies any tool needing approval by default (there's
+    // no one to prompt) — WebSearch has to be pre-authorized per invocation
+    // via --allowedTools, or the CLI just declines to search and says so.
+    if (allowedTools?.length) args.push("--allowedTools", allowedTools.join(","));
+    const child = spawn(CLAUDE_BIN, args, {
       env: CLI_ENV,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "", errOut = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), 180000);
+    // WebSearch-augmented drafts can take noticeably longer than a plain
+    // completion (~25s observed for one search round-trip) — give it more
+    // room than a pure-text call would need.
+    const timer = setTimeout(() => child.kill("SIGKILL"), allowedTools?.length ? 300000 : 180000);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (errOut += d));
     child.on("error", (e) => { clearTimeout(timer); reject(e); });
@@ -352,15 +360,15 @@ const cliQueue = [];
 function pumpCliQueue() {
   if (cliBusy || cliQueue.length === 0) return;
   cliBusy = true;
-  const { prompt, resolve, reject } = cliQueue.shift();
-  runClaude(prompt)
+  const { prompt, allowedTools, resolve, reject } = cliQueue.shift();
+  runClaude(prompt, { allowedTools })
     .then(resolve, reject)
     .finally(() => { cliBusy = false; pumpCliQueue(); });
 }
 
-function runClaudeQueued(prompt, { priority = false } = {}) {
+function runClaudeQueued(prompt, { priority = false, allowedTools } = {}) {
   return new Promise((resolve, reject) => {
-    const task = { prompt, resolve, reject };
+    const task = { prompt, allowedTools, resolve, reject };
     if (priority) cliQueue.unshift(task);
     else cliQueue.push(task);
     pumpCliQueue();
@@ -381,7 +389,10 @@ app.post("/api/draft", async (req, res) => {
   // `claude` CLI. Both use an existing subscription, no API key.
   const provider = (process.env.DRAFT_PROVIDER || "claude").toLowerCase();
   try {
-    const raw = provider === "chatgpt" ? await draftViaChatGPT(prompt) : await runClaudeQueued(prompt, { priority: true });
+    const raw =
+      provider === "chatgpt"
+        ? await draftViaChatGPT(prompt)
+        : await runClaudeQueued(prompt, { priority: true, allowedTools: ["WebSearch"] });
     const draft = stripEmDashes(raw);
     log("draft", `Drafted answer for "${(title || "").slice(0, 60)}" via ${provider === "chatgpt" ? "ChatGPT (browser)" : "local Claude CLI"}`);
     res.json({ draft, manual: false });
